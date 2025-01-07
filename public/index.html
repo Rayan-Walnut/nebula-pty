@@ -1,177 +1,98 @@
 <!DOCTYPE html>
 <html>
-
 <head>
-    <title>Terminal Web</title>
+    <title>Terminal Simple</title>
     <link rel="stylesheet" href="/xterm/css/xterm.css" />
     <style>
-        body {
-            margin: 0;
-            padding: 20px;
-            background-color: #1e1e1e;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
-        }
-
-        #terminal-container {
+        #terminal {
             width: 100%;
-            height: 90vh;
-            border-radius: 8px;
-            overflow: hidden;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            height: 100vh;
+            background: #000;
         }
     </style>
 </head>
-
 <body>
-    <div id="terminal-container"></div>
-
+    <div id="terminal"></div>
+    
     <script src="/xterm/lib/xterm.js"></script>
-    <script src="/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
     <script>
         const term = new Terminal({
             cursorBlink: true,
-            theme: {
-                background: '#1e1e1e',
-                foreground: '#ffffff',
-                cursor: '#ffffff',
-                cursorAccent: '#000000',
-                selection: 'rgba(255, 255, 255, 0.3)',
-                black: '#000000',
-                red: '#ff5555',
-                green: '#50fa7b',
-                yellow: '#f1fa8c',
-                blue: '#bd93f9',
-                magenta: '#ff79c6',
-                cyan: '#8be9fd',
-                white: '#f8f8f2',
-                brightBlack: '#6272a4',
-                brightRed: '#ff6e6e',
-                brightGreen: '#69ff94',
-                brightYellow: '#ffffa5',
-                brightBlue: '#d6acff',
-                brightMagenta: '#ff92df',
-                brightCyan: '#a4ffff',
-                brightWhite: '#ffffff'
-            },
-            fontFamily: 'Consolas, "Courier New", monospace',
-            fontSize: 14,
-            letterSpacing: 0,
-            lineHeight: 1.2,
-            scrollback: 10000,
-            allowTransparency: true
+            cols: 80,
+            rows: 24
         });
 
-        const fitAddon = new FitAddon.FitAddon();
-        term.loadAddon(fitAddon);
-
-        term.open(document.getElementById('terminal-container'));
-        fitAddon.fit();
-
-        let inputBuffer = '';
-        let terminalId = null;
-        let isExecutingCommand = false;
+        const terminal = document.getElementById('terminal');
+        term.open(terminal);
 
         // Connexion WebSocket
-        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-        const ws = new WebSocket(`${protocol}//${window.location.host}`);
+        const ws = new WebSocket(`ws://${window.location.host}`);
+        let currentPath = '';
+        let currentLine = '';
+        let terminalId = null;
 
-        // Dans index.html
         ws.onopen = () => {
-            console.log('Connecté au serveur WebSocket');
-            term.write('\r\nConnecté au terminal...\r\n'); // Ajout d'un message visible
+            term.write('Connexion au terminal...\r\n');
         };
-        
+
         ws.onmessage = (event) => {
-            try {
-                const message = JSON.parse(event.data);
-
-                switch (message.type) {
-                    case 'terminal-id':
-                        terminalId = message.id;
-                        break;
-
-                    case 'output':
-                        term.write(message.data);
-                        if (isExecutingCommand && message.data.match(/^[A-Z]:\\.*>/)) {
-                            isExecutingCommand = false;
-                        }
-                        break;
-
-                    default:
-                        console.warn('Type de message inconnu:', message.type);
+            const message = JSON.parse(event.data);
+            
+            if (message.type === 'terminal-id') {
+                terminalId = message.id;
+            } else if (message.type === 'output') {
+                // Gestion du chemin courant
+                const pathMatch = message.data.match(/^([A-Z]:\\[^\r\n>]+)>/i);
+                if (pathMatch) {
+                    currentPath = pathMatch[1];
                 }
-            } catch (err) {
-                console.error('Erreur de traitement du message:', err);
+                term.write(message.data);
             }
         };
 
-        // Gestion des entrées utilisateur
-        term.onData(data => {
-            if (isExecutingCommand) {
-                return; // Ignore les entrées pendant l'exécution d'une commande
-            }
-
-            const code = data.charCodeAt(0);
-
-            // Si c'est un retour chariot (Enter)
-            if (code === 13) {
-                if (inputBuffer.trim()) {
-                    isExecutingCommand = true;
-                    if (ws.readyState === WebSocket.OPEN && terminalId) {
+        // Gérer les entrées utilisateur
+        term.onData(e => {
+            const char = e;
+            
+            switch (char) {
+                case '\r': // Enter
+                    if (currentLine.trim()) {
+                        term.write('\r\n');
                         ws.send(JSON.stringify({
                             type: 'input',
                             terminalId: terminalId,
-                            data: inputBuffer + '\r\n'
+                            data: currentLine + '\r\n'
                         }));
+                        currentLine = '';
                     }
-                }
-                inputBuffer = '';
-            }
-            // Si c'est un backspace
-            else if (code === 127) {
-                if (inputBuffer.length > 0) {
-                    inputBuffer = inputBuffer.slice(0, -1);
-                    term.write('\b \b');
-                }
-            }
-            // Pour tout autre caractère imprimable
-            else if (code >= 32) {
-                inputBuffer += data;
-                term.write(data);
+                    break;
+                case '\u007F': // Backspace
+                    if (currentLine.length > 0) {
+                        currentLine = currentLine.slice(0, -1);
+                        term.write('\b \b');
+                    }
+                    break;
+                case '\u0003': // Ctrl+C
+                    term.write('^C\r\n');
+                    term.write(currentPath + '> ');
+                    currentLine = '';
+                    break;
+                default:
+                    if (char >= String.fromCharCode(32)) {
+                        currentLine += char;
+                        term.write(char);
+                    }
             }
         });
 
-        // Gestion du redimensionnement
-        let resizeTimeout;
-        window.addEventListener('resize', () => {
-            clearTimeout(resizeTimeout);
-            resizeTimeout = setTimeout(() => {
-                fitAddon.fit();
-                if (ws.readyState === WebSocket.OPEN && terminalId) {
-                    const { cols, rows } = term;
-                    ws.send(JSON.stringify({
-                        type: 'resize',
-                        terminalId: terminalId,
-                        cols: cols,
-                        rows: rows
-                    }));
-                }
-            }, 100);
-        });
-
-        // Gestion des erreurs WebSocket
-        ws.onerror = (error) => {
-            console.error('Erreur WebSocket:', error);
-            term.write('\r\n\x1b[31mErreur de connexion au serveur\x1b[0m\r\n');
+        // Gestion des erreurs
+        ws.onerror = () => {
+            term.write('\r\nErreur de connexion\r\n');
         };
 
         ws.onclose = () => {
-            term.write('\r\n\x1b[31mDéconnecté du serveur\x1b[0m\r\n');
+            term.write('\r\nConnection terminée\r\n');
         };
-
-        // Activation du focus au démarrage
-        term.focus();
     </script>
 </body>
-
 </html>

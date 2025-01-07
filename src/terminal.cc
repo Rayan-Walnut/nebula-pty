@@ -1,14 +1,13 @@
-// terminal.cc
 #include <nan.h>
 #include <string>
 #include <memory>
 #include <windows.h>
 #include <iostream>
 #include <fstream>
-#include <ctime>
 #include <sstream>
 #include <mutex>
 #include <thread>
+#include <vector>
 #include "Logger/logger.h"
 
 class Terminal : public Nan::ObjectWrap {
@@ -20,7 +19,6 @@ public:
 
         Nan::SetPrototypeMethod(tpl, "write", Write);
         Nan::SetPrototypeMethod(tpl, "onData", OnData);
-        Nan::SetPrototypeMethod(tpl, "resize", Resize);
         Nan::SetPrototypeMethod(tpl, "destroy", Destroy);
 
         constructor().Reset(Nan::GetFunction(tpl).ToLocalChecked());
@@ -29,100 +27,117 @@ public:
     }
 
 private:
-    explicit Terminal(int cols = 80, int rows = 24, const std::wstring& initialPath = L"")
-        : cols(cols), rows(rows), isRunning(false),
-          hStdin(NULL), hStdout(NULL), hProcess(NULL),
-          hConsole(NULL), readThread(NULL),
-          workingDirectory(initialPath) {
+    explicit Terminal(const std::wstring& initialPath = L"") : 
+        isRunning(false), hStdin(NULL), hStdout(NULL), readThread(NULL) {
         
         InitializeCriticalSection(&criticalSection);
-        Logger::Info("Terminal constructor called");
+        Logger::Info("Starting terminal initialization");
 
+        // Création des pipes
         SECURITY_ATTRIBUTES sa;
-        STARTUPINFOW si;
-        HANDLE hStdinRead = NULL, hStdoutWrite = NULL;
-
-        ZeroMemory(&sa, sizeof(sa));
-        sa.nLength = sizeof(sa);
+        sa.nLength = sizeof(SECURITY_ATTRIBUTES);
         sa.bInheritHandle = TRUE;
+        sa.lpSecurityDescriptor = NULL;
 
-        if (!CreatePipe(&hStdin, &hStdoutWrite, &sa, 65536) ||
-            !CreatePipe(&hStdinRead, &hStdout, &sa, 65536)) {
-            Logger::Error("Failed to create pipes");
+        // Créer les pipes pour stdin et stdout
+        if (!CreatePipe(&childStdin_Read, &childStdin_Write, &sa, 0)) {
+            Logger::Error("StdIn CreatePipe failed");
+            return;
+        }
+        if (!CreatePipe(&childStdout_Read, &childStdout_Write, &sa, 0)) {
+            Logger::Error("StdOut CreatePipe failed");
+            CloseHandle(childStdin_Read);
+            CloseHandle(childStdin_Write);
             return;
         }
 
-        ZeroMemory(&si, sizeof(si));
-        si.cb = sizeof(STARTUPINFOW);
-        si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
-        si.wShowWindow = SW_HIDE;
-        si.hStdInput = hStdinRead;
-        si.hStdOutput = hStdoutWrite;
-        si.hStdError = hStdoutWrite;
-
-        WCHAR cmdLine[] = L"cmd.exe";
-        ZeroMemory(&pi, sizeof(pi));
-
-        if (CreateProcessW(NULL, cmdLine, NULL, NULL, TRUE,
-                         CREATE_NEW_CONSOLE, NULL,
-                         workingDirectory.empty() ? NULL : workingDirectory.c_str(),
-                         &si, &pi)) {
-            
-            isRunning = true;
-
-            // Configuration des modes de la console
-            DWORD mode;
-            if (GetConsoleMode(hStdin, &mode)) {
-                mode &= ~(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT);
-                mode |= ENABLE_VIRTUAL_TERMINAL_INPUT | ENABLE_PROCESSED_INPUT;
-                SetConsoleMode(hStdin, mode);
-            }
-
-            if (GetConsoleMode(hStdout, &mode)) {
-                mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING |
-                       ENABLE_PROCESSED_OUTPUT |
-                       ENABLE_WRAP_AT_EOL_OUTPUT;
-                SetConsoleMode(hStdout, mode);
-            }
-
-            readThread = CreateThread(NULL, 0, ReadThread, this, 0, NULL);
-
-            const char* initCommands[] = {
-                "@echo off\r\n",
-                "prompt $P$G\r\n",
-                "cls\r\n"
-            };
-
-            for (const char* cmd : initCommands) {
-                DWORD written;
-                WriteFile(hStdin, cmd, strlen(cmd), &written, NULL);
-                FlushFileBuffers(hStdin);
-            }
-
-            // Configuration de la taille de la console
-            if (HANDLE consoleHandle = CreateFileW(L"CONOUT$",
-                                            GENERIC_READ | GENERIC_WRITE,
-                                            FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                            NULL, OPEN_EXISTING, 0, NULL)) {
-                
-                COORD size = {static_cast<SHORT>(cols), static_cast<SHORT>(rows)};
-                SMALL_RECT rect = {0, 0,
-                                 static_cast<SHORT>(cols - 1),
-                                 static_cast<SHORT>(rows - 1)};
-
-                SetConsoleScreenBufferSize(consoleHandle, size);
-                SetConsoleWindowInfo(consoleHandle, TRUE, &rect);
-                CloseHandle(consoleHandle);
-            }
-        } else {
-            Logger::Error("Failed to create process");
+        // Assurer que le côté écriture de stdin et le côté lecture de stdout ne sont pas hérités
+        if (!SetHandleInformation(childStdin_Write, HANDLE_FLAG_INHERIT, 0) ||
+            !SetHandleInformation(childStdout_Read, HANDLE_FLAG_INHERIT, 0)) {
+            Logger::Error("SetHandleInformation failed");
+            return;
         }
 
-        if (hStdinRead) CloseHandle(hStdinRead);
-        if (hStdoutWrite) CloseHandle(hStdoutWrite);
+        STARTUPINFOW si;
+        PROCESS_INFORMATION pi;
+        ZeroMemory(&si, sizeof(si));
+        ZeroMemory(&pi, sizeof(pi));
+        si.cb = sizeof(si);
+        si.dwFlags = STARTF_USESTDHANDLES;
+        si.hStdInput = childStdin_Read;
+        si.hStdOutput = childStdout_Write;
+        si.hStdError = childStdout_Write;
+
+        std::wstring cmdLine = L"powershell.exe -NoLogo -NoProfile -ExecutionPolicy Bypass";
+
+        Logger::Info("Launching PowerShell...");
+        BOOL success = CreateProcessW(
+            NULL,
+            (LPWSTR)cmdLine.c_str(),
+            NULL,
+            NULL,
+            TRUE,
+            CREATE_NO_WINDOW,
+            NULL,
+            initialPath.empty() ? NULL : initialPath.c_str(),
+            &si,
+            &pi
+        );
+
+        if (!success) {
+            Logger::Error("CreateProcess failed with error: " + std::to_string(GetLastError()));
+            return;
+        }
+
+        // Stocker les handles dont nous avons besoin
+        hStdin = childStdin_Write;
+        hStdout = childStdout_Read;
+        processHandle = pi.hProcess;
+        threadHandle = pi.hThread;
+        isRunning = true;
+
+        // Fermer les handles dont nous n'avons plus besoin
+        CloseHandle(childStdin_Read);
+        CloseHandle(childStdout_Write);
+
+        // Démarrer le thread de lecture
+        readThread = CreateThread(NULL, 0, ReadThread, this, 0, NULL);
+
+        // Envoyer les commandes d'initialisation
+        const char *initCmds[] = {
+            "$Host.UI.RawUI.WindowTitle='Terminal Web';\r\n",
+            "$OutputEncoding = [System.Text.Encoding]::UTF8;\r\n",
+            "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8;\r\n",
+            "function Prompt { 'PS ' + (Get-Location).Path + '> ' };\r\n",
+            "cls;\r\n"
+        };
+
+        // Envoyer chaque commande d'initialisation
+        for (const char* cmd : initCmds) {
+            DWORD written;
+            WriteFile(hStdin, cmd, strlen(cmd), &written, NULL);
+            FlushFileBuffers(hStdin);
+            Sleep(100);
+        }
+
+        // Envoyer la commande cd séparément
+        if (!initialPath.empty()) {
+            // Convertir le chemin wide en UTF-8
+            int size_needed = WideCharToMultiByte(CP_UTF8, 0, initialPath.c_str(), -1, NULL, 0, NULL, NULL);
+            std::vector<char> pathBuffer(size_needed);
+            WideCharToMultiByte(CP_UTF8, 0, initialPath.c_str(), -1, pathBuffer.data(), size_needed, NULL, NULL);
+            
+            std::string cdCommand = "cd '" + std::string(pathBuffer.data()) + "';\r\n";
+            DWORD written;
+            WriteFile(hStdin, cdCommand.c_str(), cdCommand.length(), &written, NULL);
+            FlushFileBuffers(hStdin);
+        }
+
+        Logger::Info("Terminal initialization complete");
     }
 
     ~Terminal() {
+        Logger::Info("Terminal destructor called");
         isRunning = false;
         EnterCriticalSection(&criticalSection);
 
@@ -131,15 +146,10 @@ private:
             CloseHandle(readThread);
         }
 
-        if (pi.hProcess) {
-            TerminateProcess(pi.hProcess, 0);
-            CloseHandle(pi.hProcess);
-            CloseHandle(pi.hThread);
-        }
-
+        if (processHandle) CloseHandle(processHandle);
+        if (threadHandle) CloseHandle(threadHandle);
         if (hStdin) CloseHandle(hStdin);
         if (hStdout) CloseHandle(hStdout);
-        if (hConsole) CloseHandle(hConsole);
 
         LeaveCriticalSection(&criticalSection);
         DeleteCriticalSection(&criticalSection);
@@ -150,169 +160,134 @@ private:
         char buffer[4096];
         DWORD bytesRead;
 
-        Logger::Debug("Read thread started");
+        Logger::Info("ReadThread started");
 
         while (terminal->isRunning) {
-            if (ReadFile(terminal->hStdout, buffer, sizeof(buffer) - 1, &bytesRead, NULL)) {
-                if (bytesRead > 0) {
-                    EnterCriticalSection(&terminal->criticalSection);
+            if (ReadFile(terminal->hStdout, buffer, sizeof(buffer) - 1, &bytesRead, NULL) && bytesRead > 0) {
+                EnterCriticalSection(&terminal->criticalSection);
+                
+                buffer[bytesRead] = '\0';
+                Logger::Debug("Read from PowerShell: " + std::string(buffer));
 
-                    buffer[bytesRead] = '\0';
-                    v8::Isolate* isolate = v8::Isolate::GetCurrent();
-
-                    if (isolate && !terminal->dataCallback.IsEmpty()) {
-                        v8::HandleScope scope(isolate);
-                        v8::Local<v8::Value> argv[] = {
-                            Nan::New(buffer).ToLocalChecked()
-                        };
-                        Nan::AsyncResource async("Terminal:Read");
-                        terminal->dataCallback.Call(1, argv, &async);
-                    }
-
-                    LeaveCriticalSection(&terminal->criticalSection);
+                v8::Isolate* isolate = v8::Isolate::GetCurrent();
+                if (isolate && !terminal->dataCallback.IsEmpty()) {
+                    v8::HandleScope scope(isolate);
+                    v8::Local<v8::Value> argv[] = { Nan::New(buffer).ToLocalChecked() };
+                    Nan::AsyncResource async("Terminal:Read");
+                    terminal->dataCallback.Call(1, argv, &async);
                 }
+
+                LeaveCriticalSection(&terminal->criticalSection);
             }
-            Sleep(1);
+            Sleep(10);
         }
         return 0;
     }
 
-    static NAN_METHOD(New);
-    static NAN_METHOD(Write);
-    static NAN_METHOD(OnData);
-    static NAN_METHOD(Resize);
-    static NAN_METHOD(Destroy);
+    static NAN_METHOD(Write) {
+        Terminal* terminal = Nan::ObjectWrap::Unwrap<Terminal>(info.Holder());
+        if (!info[0]->IsString()) {
+            Logger::Error("Invalid argument type in Write");
+            return;
+        }
+
+        if (!terminal->isRunning || terminal->hStdin == INVALID_HANDLE_VALUE) {
+            Logger::Error("Terminal not running or invalid handle");
+            return;
+        }
+
+        v8::String::Utf8Value data(v8::Isolate::GetCurrent(), info[0]);
+        std::string command(*data);
+        Logger::Info("Received command: " + command);
+
+        // Vérifier si le processus PowerShell est toujours en cours d'exécution
+        DWORD exitCode = 0;
+        if (GetExitCodeProcess(terminal->processHandle, &exitCode) && exitCode != STILL_ACTIVE) {
+            Logger::Error("PowerShell process is not running (Exit code: " + std::to_string(exitCode) + ")");
+            return;
+        }
+
+        if (!command.empty()) {
+            // Ajouter \r\n si nécessaire
+            if (command.back() != '\n') {
+                command += "\r\n";
+            }
+
+            DWORD bytesWritten = 0;
+            BOOL success = WriteFile(
+                terminal->hStdin,
+                command.c_str(),
+                static_cast<DWORD>(command.length()),
+                &bytesWritten,
+                NULL
+            );
+
+            if (!success) {
+                DWORD error = GetLastError();
+                Logger::Error("WriteFile failed - Error code: " + std::to_string(error));
+            } else {
+                Logger::Info("Successfully wrote " + std::to_string(bytesWritten) + " bytes");
+                FlushFileBuffers(terminal->hStdin);
+            }
+        }
+
+        info.GetReturnValue().Set(Nan::True());
+    }
+
+    static NAN_METHOD(OnData) {
+        Terminal* terminal = Nan::ObjectWrap::Unwrap<Terminal>(info.Holder());
+        if (info[0]->IsFunction()) {
+            terminal->dataCallback.Reset(info[0].As<v8::Function>());
+        }
+    }
+
+    static NAN_METHOD(Destroy) {
+        Terminal* terminal = Nan::ObjectWrap::Unwrap<Terminal>(info.Holder());
+        terminal->isRunning = false;
+        terminal->dataCallback.Reset();
+    }
+
+    static NAN_METHOD(New) {
+        if (!info.IsConstructCall()) {
+            return Nan::ThrowError("Constructor must be called with new");
+        }
+
+        std::wstring initialPath;
+        if (info.Length() > 0 && info[0]->IsObject()) {
+            v8::Local<v8::Object> options = Nan::To<v8::Object>(info[0]).ToLocalChecked();
+            v8::Local<v8::String> cwd_key = Nan::New("cwd").ToLocalChecked();
+            
+            if (Nan::Has(options, cwd_key).FromJust()) {
+                v8::String::Value cwdValue(v8::Isolate::GetCurrent(),
+                                         Nan::Get(options, cwd_key).ToLocalChecked());
+                if (*cwdValue) {
+                    initialPath = std::wstring(reinterpret_cast<const wchar_t*>(*cwdValue));
+                }
+            }
+        }
+
+        Terminal* obj = new Terminal(initialPath);
+        obj->Wrap(info.This());
+        info.GetReturnValue().Set(info.This());
+    }
 
     static inline Nan::Persistent<v8::Function>& constructor() {
         static Nan::Persistent<v8::Function> my_constructor;
         return my_constructor;
     }
 
+    bool isRunning;
     HANDLE hStdin;
     HANDLE hStdout;
-    HANDLE hProcess;
-    bool isRunning;
-    PROCESS_INFORMATION pi;
-    HANDLE hConsole;
-    Nan::Callback dataCallback;
-    int cols;
-    int rows;
-    std::wstring workingDirectory;
     HANDLE readThread;
+    HANDLE processHandle;
+    HANDLE threadHandle;
+    HANDLE childStdin_Read;
+    HANDLE childStdin_Write;
+    HANDLE childStdout_Read;
+    HANDLE childStdout_Write;
+    Nan::Callback dataCallback;
     CRITICAL_SECTION criticalSection;
 };
-
-// Implémentation des méthodes statiques de Terminal
-NAN_METHOD(Terminal::New) {
-    if (!info.IsConstructCall()) {
-        return Nan::ThrowError("Constructor must be called with new");
-    }
-
-    int cols = 80, rows = 24;
-    std::wstring initialPath;
-
-    if (info.Length() > 0 && info[0]->IsObject()) {
-        v8::Local<v8::Object> options = Nan::To<v8::Object>(info[0]).ToLocalChecked();
-
-        v8::Local<v8::String> cols_key = Nan::New("cols").ToLocalChecked();
-        v8::Local<v8::String> rows_key = Nan::New("rows").ToLocalChecked();
-        v8::Local<v8::String> cwd_key = Nan::New("cwd").ToLocalChecked();
-
-        if (Nan::Has(options, cols_key).FromJust()) {
-            cols = Nan::To<int32_t>(Nan::Get(options, cols_key).ToLocalChecked()).FromJust();
-        }
-        if (Nan::Has(options, rows_key).FromJust()) {
-            rows = Nan::To<int32_t>(Nan::Get(options, rows_key).ToLocalChecked()).FromJust();
-        }
-        if (Nan::Has(options, cwd_key).FromJust()) {
-            v8::String::Value cwdValue(v8::Isolate::GetCurrent(),
-                                     Nan::Get(options, cwd_key).ToLocalChecked());
-            if (*cwdValue) {
-                initialPath = std::wstring(reinterpret_cast<const wchar_t*>(*cwdValue));
-            }
-        }
-    }
-
-    Terminal* obj = new Terminal(cols, rows, initialPath);
-    obj->Wrap(info.This());
-    info.GetReturnValue().Set(info.This());
-}
-
-NAN_METHOD(Terminal::Write) {
-    Terminal* terminal = Nan::ObjectWrap::Unwrap<Terminal>(info.Holder());
-
-    if (!info[0]->IsString()) {
-        return Nan::ThrowError("Data argument must be a string");
-    }
-
-    v8::String::Utf8Value data(v8::Isolate::GetCurrent(), info[0]);
-    if (!terminal->isRunning || terminal->hStdin == INVALID_HANDLE_VALUE) {
-        return;
-    }
-
-    EnterCriticalSection(&terminal->criticalSection);
-
-    std::string command(*data);
-    if (!command.empty() && (command.back() != '\n' && command.back() != '\r')) {
-        command += "\r\n";
-    }
-
-    DWORD written;
-    WriteFile(terminal->hStdin, command.c_str(), command.length(), &written, NULL);
-    FlushFileBuffers(terminal->hStdin);
-
-    LeaveCriticalSection(&terminal->criticalSection);
-
-    Logger::Info("Data written to terminal");
-    info.GetReturnValue().Set(Nan::True());
-}
-
-NAN_METHOD(Terminal::OnData) {
-    Terminal* terminal = Nan::ObjectWrap::Unwrap<Terminal>(info.Holder());
-
-    if (!info[0]->IsFunction()) {
-        return Nan::ThrowError("Callback must be a function");
-    }
-
-    terminal->dataCallback.Reset(info[0].As<v8::Function>());
-}
-
-NAN_METHOD(Terminal::Resize) {
-    Terminal* terminal = Nan::ObjectWrap::Unwrap<Terminal>(info.Holder());
-
-    if (info.Length() < 2) {
-        return Nan::ThrowError("Columns and rows are required");
-    }
-
-    terminal->cols = Nan::To<int32_t>(info[0]).FromJust();
-    terminal->rows = Nan::To<int32_t>(info[1]).FromJust();
-
-    HANDLE consoleHandle = CreateFileW(L"CONOUT$",
-                                     GENERIC_READ | GENERIC_WRITE,
-                                     FILE_SHARE_READ | FILE_SHARE_WRITE,
-                                     NULL, OPEN_EXISTING, 0, NULL);
-
-    if (consoleHandle != INVALID_HANDLE_VALUE) {
-        EnterCriticalSection(&terminal->criticalSection);
-
-        COORD size = {static_cast<SHORT>(terminal->cols),
-                     static_cast<SHORT>(terminal->rows)};
-        SMALL_RECT rect = {0, 0,
-                          static_cast<SHORT>(terminal->cols - 1),
-                          static_cast<SHORT>(terminal->rows - 1)};
-
-        SetConsoleScreenBufferSize(consoleHandle, size);
-        SetConsoleWindowInfo(consoleHandle, TRUE, &rect);
-
-        CloseHandle(consoleHandle);
-        LeaveCriticalSection(&terminal->criticalSection);
-    }
-}
-
-NAN_METHOD(Terminal::Destroy) {
-    Terminal* terminal = Nan::ObjectWrap::Unwrap<Terminal>(info.Holder());
-    terminal->isRunning = false;
-    terminal->dataCallback.Reset();
-}
 
 NODE_MODULE(terminal, Terminal::Init)

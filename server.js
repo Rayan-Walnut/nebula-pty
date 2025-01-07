@@ -6,7 +6,7 @@ const TerminalModule = require('./build/Release/terminal');
 const Terminal = TerminalModule.Terminal;
 console.log('Module terminal chargé:', TerminalModule);
 
-
+const os = require('os');
 const app = express();
 const server = http.createServer(app);
 const wss = new WebSocket.Server({ server });
@@ -15,6 +15,7 @@ const wss = new WebSocket.Server({ server });
 app.use(express.static('public'));
 app.use('/xterm', express.static(path.join(__dirname, 'node_modules/xterm')));
 app.use('/xterm-addon-fit', express.static(path.join(__dirname, 'node_modules/xterm-addon-fit')));
+app.use('/node_modules', express.static(path.join(__dirname, 'node_modules')));
 
 // Route principale
 app.get('/', (req, res) => {
@@ -23,88 +24,55 @@ app.get('/', (req, res) => {
 
 // Map pour stocker les instances de terminal
 const terminals = new Map();
-
-// Gestion des connexions WebSocket
 wss.on('connection', (ws) => {
-    console.log('Nouvelle connexion client établie');
+    console.log('Nouvelle connexion client');
     
-    // Créer une nouvelle instance de terminal
+    // Utiliser le répertoire personnel de l'utilisateur comme chemin initial
+    const homedir = os.homedir();
+    
     const term = new Terminal({
         cols: 80,
         rows: 24,
-        cwd: 'C:\\Users\\prora\\Desktop' // Remplacez par votre chemin
+        cwd: homedir // Définir le répertoire initial
     });
-
 
     const terminalId = Date.now().toString();
     terminals.set(terminalId, { term, ws });
 
-    // Configurer la callback de données du terminal
     term.onData((data) => {
         if (ws.readyState === WebSocket.OPEN) {
-            try {
-                ws.send(JSON.stringify({
-                    type: 'output',
-                    data: data
-                }));
-            } catch (err) {
-                console.error('Erreur lors de l\'envoi des données:', err);
-            }
+            ws.send(JSON.stringify({ type: 'output', data }));
         }
     });
 
-    // Envoyer l'ID du terminal au client
-    ws.send(JSON.stringify({
-        type: 'terminal-id',
-        id: terminalId
-    }));
+    // Envoyer l'ID du terminal
+    ws.send(JSON.stringify({ type: 'terminal-id', id: terminalId }));
 
-    // Gestion des messages du client
     ws.on('message', (message) => {
         try {
             const msg = JSON.parse(message.toString());
-            
             const terminalData = terminals.get(msg.terminalId);
-            if (!terminalData) {
-                console.error('Terminal non trouvé:', msg.terminalId);
-                return;
-            }
+            
+            if (!terminalData) return;
 
-            switch (msg.type) {
-                case 'input':
-                    if (msg.data.trim()) {
-                        terminalData.term.write(msg.data);
-                    }
-                    break;
-                
-                case 'resize':
-                    terminalData.term.resize(msg.cols, msg.rows);
-                    break;
-
-                default:
-                    console.warn('Type de message inconnu:', msg.type);
+            if (msg.type === 'input') {
+                terminalData.term.write(msg.data);
             }
-        } catch (err) {
-            console.error('Erreur de traitement du message:', err);
+        } catch (error) {
+            console.error('Erreur de traitement du message:', error);
         }
     });
 
-    // Gestion des erreurs WebSocket
-    ws.on('error', (error) => {
-        console.error('Erreur WebSocket:', error);
-    });
-
-    // Nettoyage à la déconnexion
     ws.on('close', () => {
         const terminalData = terminals.get(terminalId);
         if (terminalData) {
-            console.log('Fermeture du terminal:', terminalId);
             terminalData.term.destroy();
             terminals.delete(terminalId);
         }
         console.log('Client déconnecté');
     });
 });
+
 
 // Gestion des erreurs serveur WebSocket
 wss.on('error', (error) => {
