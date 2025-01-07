@@ -4,8 +4,17 @@
     <title>Terminal Web</title>
     <link rel="stylesheet" href="/xterm/css/xterm.css" />
     <style>
-        body { margin: 0; padding: 20px; }
-        #terminal { width: 100%; height: 90vh; }
+        body { 
+            margin: 0; 
+            padding: 0; 
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        #terminal { 
+            flex: 1;
+            padding: 10px;
+        }
     </style>
 </head>
 <body>
@@ -17,8 +26,13 @@
         const term = new Terminal({
             cursorBlink: true,
             theme: {
-                background: '#1a1a1a'
-            }
+                background: '#1a1a1a',
+                foreground: '#ffffff',
+                cursor: '#ffffff'
+            },
+            fontFamily: 'Consolas, monospace',
+            fontSize: 14,
+            lineHeight: 1.2
         });
 
         const fitAddon = new FitAddon.FitAddon();
@@ -27,28 +41,56 @@
         term.open(document.getElementById('terminal'));
         fitAddon.fit();
 
-        const ws = new WebSocket(`ws://${window.location.host}`);
+        let ws = null;
+
+        function connectWebSocket() {
+            ws = new WebSocket(`ws://${window.location.host}`);
+
+            ws.onopen = () => {
+                console.log('Connecté au serveur');
+                term.write('\r\nConnecté au terminal...\r\n');
+            };
+
+            ws.onclose = () => {
+                console.log('Déconnecté du serveur');
+                term.write('\r\nDéconnecté du terminal. Tentative de reconnexion...\r\n');
+                setTimeout(connectWebSocket, 3000);
+            };
+
+            ws.onerror = (error) => {
+                console.error('Erreur WebSocket:', error);
+            };
+
+            ws.onmessage = (event) => {
+                term.write(event.data);
+            };
+        }
+
+        // Démarrer la connexion WebSocket
+        connectWebSocket();
 
         // Envoyer les entrées au serveur
         term.onData(data => {
-            ws.send(data);
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(data);
+            }
         });
-
-        // Recevoir les données du serveur
-        ws.onmessage = (event) => {
-            term.write(event.data);
-        };
 
         // Gérer le redimensionnement
-        window.addEventListener('resize', () => {
+        function handleResize() {
             fitAddon.fit();
-            const dims = term.cols + "x" + term.rows;
-            ws.send(JSON.stringify({
-                type: 'resize',
-                cols: term.cols,
-                rows: term.rows
-            }));
-        });
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    type: 'resize',
+                    cols: term.cols,
+                    rows: term.rows
+                }));
+            }
+        }
+
+        window.addEventListener('resize', handleResize);
+        // Appliquer le redimensionnement initial
+        setTimeout(handleResize, 100);
     </script>
 </body>
 </html>
