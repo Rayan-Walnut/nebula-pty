@@ -1,3 +1,4 @@
+// server.js
 const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
@@ -24,6 +25,11 @@ app.use(express.static('public'));
 app.use('/xterm', express.static(path.join(__dirname, 'node_modules/xterm')));
 app.use('/xterm-addon-fit', express.static(path.join(__dirname, 'node_modules/xterm-addon-fit')));
 
+// Route principale pour servir index.html
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
 // Gestion des connexions WebSocket
 wss.on('connection', (ws) => {
     console.log('Nouvelle connexion client établie');
@@ -37,19 +43,28 @@ wss.on('connection', (ws) => {
         });
         console.log('Instance de Terminal créée');
 
-        // Configuration de la réception des données du terminal
-        term.onData((data) => {
-            console.log('Données reçues du terminal:', data);
-            if (ws.readyState === WebSocket.OPEN) {
-                ws.send(data);
-            }
-        });
+        // Test initial du terminal
+        try {
+            console.log('Test d\'écriture initial');
+            term.write('\r\nTerminal Windows connecté\r\n');
+        } catch (e) {
+            console.error('Erreur lors du test d\'écriture initial:', e);
+        }
 
-        // Message de bienvenue
-        term.write('Terminal connecté\r\n');
+        // Configuration de la réception des données du terminal
+        try {
+            term.onData((data) => {
+                console.log('Données reçues du terminal:', data.toString());
+                if (ws.readyState === WebSocket.OPEN) {
+                    ws.send(data.toString());
+                }
+            });
+        } catch (e) {
+            console.error('Erreur lors de la configuration onData:', e);
+        }
 
         // Gestion des messages du client WebSocket
-        ws.on('message', (message) => {
+        ws.on('message', async (message) => {
             try {
                 const data = message.toString();
                 
@@ -67,20 +82,26 @@ wss.on('connection', (ws) => {
                     }
                 }
 
-                // Sinon, envoyer au terminal
+                // Envoi au terminal
                 console.log('Envoi au terminal:', data);
                 term.write(data);
 
             } catch (err) {
                 console.error('Erreur de traitement du message:', err);
+                // Envoyer l'erreur au client
+                ws.send('\r\nErreur: ' + err.message + '\r\n');
             }
         });
 
-        // Gestion de la fermeture de la connexion
+        // Gestion de la fermeture propre
         ws.on('close', () => {
             console.log('Client déconnecté');
             if (term) {
-                term.destroy();
+                try {
+                    term.destroy();
+                } catch (e) {
+                    console.error('Erreur lors de la destruction du terminal:', e);
+                }
                 term = null;
             }
         });
@@ -89,13 +110,18 @@ wss.on('connection', (ws) => {
         ws.on('error', (error) => {
             console.error('Erreur WebSocket:', error);
             if (term) {
-                term.destroy();
+                try {
+                    term.destroy();
+                } catch (e) {
+                    console.error('Erreur lors de la destruction du terminal:', e);
+                }
                 term = null;
             }
         });
 
     } catch (error) {
         console.error('Erreur lors de l\'initialisation du terminal:', error);
+        ws.send('\r\nErreur d\'initialisation du terminal: ' + error.message + '\r\n');
         ws.close();
     }
 });
@@ -126,4 +152,17 @@ process.on('SIGINT', () => {
         console.log('Serveur arrêté');
         process.exit(0);
     });
+});
+
+// Gestion des erreurs non capturées
+process.on('uncaughtException', (error) => {
+    console.error('Erreur non capturée:', error);
+    // Ne pas quitter immédiatement pour permettre les logs de se terminer
+    setTimeout(() => {
+        process.exit(1);
+    }, 1000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('Promesse rejetée non gérée:', reason);
 });

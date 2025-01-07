@@ -10,6 +10,7 @@
             height: 100vh;
             display: flex;
             flex-direction: column;
+            background-color: #000;
         }
         #terminal { 
             flex: 1;
@@ -26,13 +27,16 @@
         const term = new Terminal({
             cursorBlink: true,
             theme: {
-                background: '#1a1a1a',
+                background: '#000000',
                 foreground: '#ffffff',
                 cursor: '#ffffff'
             },
             fontFamily: 'Consolas, monospace',
             fontSize: 14,
-            lineHeight: 1.2
+            lineHeight: 1.2,
+            convertEol: true,
+            scrollback: 1000,
+            disableStdin: false
         });
 
         const fitAddon = new FitAddon.FitAddon();
@@ -42,17 +46,16 @@
         fitAddon.fit();
 
         let ws = null;
+        let currentLine = '';
 
         function connectWebSocket() {
             ws = new WebSocket(`ws://${window.location.host}`);
 
             ws.onopen = () => {
-                console.log('Connecté au serveur');
                 term.write('\r\nConnecté au terminal...\r\n');
             };
 
             ws.onclose = () => {
-                console.log('Déconnecté du serveur');
                 term.write('\r\nDéconnecté du terminal. Tentative de reconnexion...\r\n');
                 setTimeout(connectWebSocket, 3000);
             };
@@ -66,17 +69,26 @@
             };
         }
 
-        // Démarrer la connexion WebSocket
         connectWebSocket();
 
-        // Envoyer les entrées au serveur
         term.onData(data => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
+            if (!ws || ws.readyState !== WebSocket.OPEN) return;
+
+            // Gestion des touches spéciales
+            if (data === '\r') { // Touche Entrée
+                ws.send('\r');
+                currentLine = '';
+            } else if (data === '\u007F') { // Touche Backspace
+                if (currentLine.length > 0) {
+                    currentLine = currentLine.substring(0, currentLine.length - 1);
+                    term.write('\b \b');
+                }
+            } else {
+                currentLine += data;
                 ws.send(data);
             }
         });
 
-        // Gérer le redimensionnement
         function handleResize() {
             fitAddon.fit();
             if (ws && ws.readyState === WebSocket.OPEN) {
@@ -89,7 +101,6 @@
         }
 
         window.addEventListener('resize', handleResize);
-        // Appliquer le redimensionnement initial
         setTimeout(handleResize, 100);
     </script>
 </body>
