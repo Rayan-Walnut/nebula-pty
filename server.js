@@ -14,7 +14,7 @@ function log(type, message, data = null) {
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ 
+const wss = new WebSocket.Server({
     server,
     perMessageDeflate: false
 });
@@ -25,9 +25,9 @@ app.use('/xterm', express.static(path.join(__dirname, 'node_modules/xterm')));
 const terminals = new Map();
 function convertWindowsOutput(buffer) {
     // Détecter l'encodage BOM
-    if (buffer.length >= 3 && 
-        buffer[0] === 0xEF && 
-        buffer[1] === 0xBB && 
+    if (buffer.length >= 3 &&
+        buffer[0] === 0xEF &&
+        buffer[1] === 0xBB &&
         buffer[2] === 0xBF) {
         // UTF-8 avec BOM
         return buffer.toString('utf8', 3);
@@ -35,7 +35,7 @@ function convertWindowsOutput(buffer) {
 
     // Essayer différents encodages dans l'ordre
     const encodings = ['utf8', 'win1252', 'cp850', 'latin1'];
-    
+
     for (const encoding of encodings) {
         try {
             const decoded = iconv.decode(Buffer.from(buffer), encoding);
@@ -49,40 +49,33 @@ function convertWindowsOutput(buffer) {
             continue;
         }
     }
-    
+
     // Fallback sur UTF-8 simple
     return buffer.toString('utf8');
 }
+
 wss.on('connection', (ws, req) => {
     const clientIp = req.socket.remoteAddress;
     const terminalId = Date.now().toString();
-    
+
     try {
-        const homedir = os.homedir();
-        const term = new Terminal({
-            cwd: homedir,
-            env: {
-                ...process.env,
-                CHCP: '65001', // Force UTF-8 pour cmd.exe
-                LANG: 'fr_FR.UTF-8'
-            }
-        });
+        const term = new Terminal({ cwd: 'C:\\Users\\prora\\Desktop' });
 
         terminals.set(terminalId, { term, ws });
 
         // Envoyer l'ID du terminal
-        ws.send(JSON.stringify({ 
-            type: 'terminal-id', 
-            id: terminalId 
+        ws.send(JSON.stringify({
+            type: 'terminal-id',
+            id: terminalId
         }));
 
         // Initialiser avec chcp 65001 pour forcer l'UTF-8
         const initOutput = term.executeCommand('chcp 65001');
-        
+
         // Obtenir le répertoire courant
         const output = term.executeCommand('cd');
         const convertedOutput = convertWindowsOutput(output);
-        
+
         ws.send(JSON.stringify({
             type: 'output',
             data: `Terminal prêt dans : ${convertedOutput}\n> `
@@ -95,7 +88,7 @@ wss.on('connection', (ws, req) => {
                     const terminal = terminals.get(msg.terminalId);
                     const output = terminal.term.executeCommand(msg.data);
                     const convertedOutput = convertWindowsOutput(output);
-                    
+
                     ws.send(JSON.stringify({
                         type: 'output',
                         data: convertedOutput + '\n> '
