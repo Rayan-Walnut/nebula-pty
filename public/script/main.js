@@ -7,13 +7,28 @@ let isConnecting = false;
 let commandHistory = [];
 let historyIndex = -1;
 
-
-// Dans ton script main.js par exemple
+// Configuration du terminal
 const term = new Terminal({
-    
-  });
-  term.open(document.getElementById('terminal'));
-  
+    fontFamily: '"Fira Code", monospace',
+    fontSize: 14,
+    theme: {
+        background: '#000000',
+        foreground: '#00ff00'
+    },
+    allowTransparency: true,
+    cursorBlink: true,
+    convertEol: true,
+    screenReaderMode: true,
+    cols: 80,
+    rows: 24,
+    windowsMode: true,
+    scrollback: 1000,
+    windowOptions: {
+        setWinSizeChars: true
+    },
+    defaultEncoding: 'utf8',
+    useFlowControl: true
+});
 
 function updateStatus(status, info = '') {
     document.getElementById('connection-status').textContent = status;
@@ -49,37 +64,40 @@ function connect() {
     ws.onerror = (error) => {
         console.error('Erreur WebSocket:', error);
     };
-
     ws.onmessage = (event) => {
         try {
             const message = JSON.parse(event.data);
-
+            
             if (message.type === 'terminal-id') {
                 terminalId = message.id;
             } else if (message.type === 'output') {
-                term.write(message.data);
+                // Nettoyage et conversion de l'encodage
+                const cleanOutput = message.data
+                    .replace(/\^[\{\}]/g, '') // Supprime les caractères parasites
+                    .replace(/\u0000/g, '');  // Supprime les caractères nuls
+    
+                term.write(cleanOutput);
             }
         } catch (error) {
             console.error('Erreur message:', error);
         }
     };
+    
 }
-let outputHistory = [];
 
 function handleSpecialCommands(command) {
     switch (command.trim().toLowerCase()) {
         case 'clear':
         case 'cls':
-            // Séquence ANSI pour effacer l'écran et repositionner le curseur
             term.write('\x1b[2J\x1b[H');
             term.write('> ');
             return true;
-
         default:
             return false;
     }
 }
 
+// Gestionnaire des entrées du terminal
 term.onData(e => {
     if (!ws || ws.readyState !== WebSocket.OPEN || !terminalId) return;
 
@@ -111,20 +129,16 @@ term.onData(e => {
         case '\u001b[A': // Flèche haut
             if (historyIndex > 0) {
                 historyIndex--;
-                term.write('\r' + ' '.repeat(currentLine.length + 2) + '\r> ');
+                term.write('\r\x1b[K> ');
                 currentLine = commandHistory[historyIndex];
                 term.write(currentLine);
-            } else if (outputHistory.length > 0) {
-                // Afficher la sortie précédente
-                term.write('\r\n' + outputHistory.join('\r\n') + '\r\n');
             }
             break;
 
         case '\u001b[B': // Flèche bas
             if (historyIndex < commandHistory.length) {
                 historyIndex++;
-                // Effacer la ligne actuelle
-                term.write('\r' + ' '.repeat(currentLine.length + 2) + '\r> ');
+                term.write('\r\x1b[K> ');
                 currentLine = historyIndex < commandHistory.length ?
                     commandHistory[historyIndex] : '';
                 term.write(currentLine);
@@ -139,5 +153,6 @@ term.onData(e => {
     }
 });
 
-// Démarrer la connexion
+// Initialisation
+term.open(document.getElementById('terminal'));
 connect();

@@ -45,83 +45,84 @@ private:
 
         info.GetReturnValue().Set(Nan::New(result).ToLocalChecked());
     }
+std::string RunCommand(const char *cmd)
+{
+    // Configuration initiale de l'encodage
+    SetConsoleOutputCP(CP_UTF8);
+    SetConsoleCP(CP_UTF8);
 
-    std::string RunCommand(const char *cmd)
+    SECURITY_ATTRIBUTES sa;
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
+    sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
+
+    HANDLE hReadPipe, hWritePipe;
+    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0))
     {
-        SECURITY_ATTRIBUTES sa;
-        sa.nLength = sizeof(SECURITY_ATTRIBUTES);
-        sa.bInheritHandle = TRUE;
-        sa.lpSecurityDescriptor = NULL;
-
-        HANDLE hReadPipe, hWritePipe;
-        if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0))
-        {
-            return "Erreur création pipe";
-        }
-
-        // Assurez-vous que le handle de lecture n'est pas hérité
-        SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
-
-        STARTUPINFOA si;
-        PROCESS_INFORMATION pi;
-        ZeroMemory(&si, sizeof(si));
-        ZeroMemory(&pi, sizeof(pi));
-
-        si.cb = sizeof(si);
-        si.dwFlags = STARTF_USESTDHANDLES;
-        si.hStdInput = NULL;
-        si.hStdOutput = hWritePipe;
-        si.hStdError = hWritePipe;
-
-        // Construire la ligne de commande
-        std::string cmdLine = std::string("powershell.exe -Command \"") + cmd + "\"";
-
-        BOOL success = CreateProcessA(
-            NULL,
-            const_cast<LPSTR>(cmdLine.c_str()),
-            NULL,
-            NULL,
-            TRUE,
-            CREATE_NO_WINDOW,
-            NULL,
-            workingDirectory.empty() ? NULL : workingDirectory.c_str(),
-            &si,
-            &pi);
-
-        if (!success)
-        {
-            CloseHandle(hReadPipe);
-            CloseHandle(hWritePipe);
-            return "Erreur exécution commande";
-        }
-
-        // Fermer le handle d'écriture
-        CloseHandle(hWritePipe);
-
-        // Lire la sortie
-        std::string output;
-        char buffer[4096];
-        DWORD bytesRead;
-
-        while (ReadFile(hReadPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL))
-        {
-            if (bytesRead == 0)
-                break;
-            buffer[bytesRead] = '\0';
-            output += buffer;
-        }
-
-        // Attendre la fin du processus
-        WaitForSingleObject(pi.hProcess, INFINITE);
-
-        // Nettoyer
-        CloseHandle(pi.hProcess);
-        CloseHandle(pi.hThread);
-        CloseHandle(hReadPipe);
-
-        return output;
+        return "Erreur création pipe";
     }
 
+    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOA si;
+    PROCESS_INFORMATION pi;
+    ZeroMemory(&si, sizeof(si));
+    ZeroMemory(&pi, sizeof(pi));
+
+    si.cb = sizeof(si);
+    si.dwFlags = STARTF_USESTDHANDLES;
+    si.hStdInput = NULL;
+    si.hStdOutput = hWritePipe;
+    si.hStdError = hWritePipe;
+
+    // Modification importante ici : configuration de l'encodage PowerShell
+    std::string cmdLine = std::string("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"")
+                         + "$OutputEncoding = [System.Text.Encoding]::UTF8; "
+                         + "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
+                         + "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; "
+                         + cmd + "\"";
+
+    BOOL success = CreateProcessA(
+        NULL,
+        const_cast<LPSTR>(cmdLine.c_str()),
+        NULL,
+        NULL,
+        TRUE,
+        CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
+        NULL,
+        workingDirectory.empty() ? NULL : workingDirectory.c_str(),
+        &si,
+        &pi);
+
+    if (!success)
+    {
+        CloseHandle(hReadPipe);
+        CloseHandle(hWritePipe);
+        return "Erreur exécution commande";
+    }
+
+    CloseHandle(hWritePipe);
+
+    std::string output;
+    char buffer[4096];
+    DWORD bytesRead;
+
+    while (ReadFile(hReadPipe, buffer, sizeof(buffer) - 1, &bytesRead, NULL))
+    {
+        if (bytesRead == 0)
+            break;
+        buffer[bytesRead] = '\0';
+        output += buffer;
+    }
+
+    WaitForSingleObject(pi.hProcess, INFINITE);
+
+    CloseHandle(pi.hProcess);
+    CloseHandle(pi.hThread);
+    CloseHandle(hReadPipe);
+
+    return output;
+}
     static NAN_METHOD(New)
     {
         if (!info.IsConstructCall())

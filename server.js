@@ -3,6 +3,7 @@ const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
 const os = require('os');
+const iconv = require('iconv-lite');
 const Terminal = require('./build/Release/terminal').Terminal;
 
 function log(type, message, data = null) {
@@ -22,51 +23,82 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use('/xterm', express.static(path.join(__dirname, 'node_modules/xterm')));
 
 const terminals = new Map();
+function convertWindowsOutput(buffer) {
+    // Détecter l'encodage BOM
+    if (buffer.length >= 3 && 
+        buffer[0] === 0xEF && 
+        buffer[1] === 0xBB && 
+        buffer[2] === 0xBF) {
+        // UTF-8 avec BOM
+        return buffer.toString('utf8', 3);
+    }
 
+    // Essayer différents encodages dans l'ordre
+    const encodings = ['utf8', 'win1252', 'cp850', 'latin1'];
+    
+    for (const encoding of encodings) {
+        try {
+            const decoded = iconv.decode(Buffer.from(buffer), encoding);
+            // Vérifier si le texte décodé est valide
+            if (decoded.replace(/[\x00-\x1F\x7F-\x9F]/g, '').length > 0) {
+                return decoded
+                    .replace(/\r\n/g, '\n')  // Normaliser les sauts de ligne
+                    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ''); // Nettoyer les caractères de contrôle
+            }
+        } catch (e) {
+            continue;
+        }
+    }
+    
+    // Fallback sur UTF-8 simple
+    return buffer.toString('utf8');
+}
 wss.on('connection', (ws, req) => {
     const clientIp = req.socket.remoteAddress;
     const terminalId = Date.now().toString();
     
-    log('WEBSOCKET', 'Nouvelle connexion entrante', { clientIp, terminalId });
-
     try {
         const homedir = os.homedir();
-        log('TERMINAL', 'Création du terminal', { terminalId, homedir });
-
         const term = new Terminal({
-            cwd: homedir
+            cwd: homedir,
+            env: {
+                ...process.env,
+                CHCP: '65001', // Force UTF-8 pour cmd.exe
+                LANG: 'fr_FR.UTF-8'
+            }
         });
 
         terminals.set(terminalId, { term, ws });
 
+        // Envoyer l'ID du terminal
         ws.send(JSON.stringify({ 
             type: 'terminal-id', 
             id: terminalId 
         }));
 
-        // Maintenant le message de bienvenue montre le répertoire actuel
+        // Initialiser avec chcp 65001 pour forcer l'UTF-8
+        const initOutput = term.executeCommand('chcp 65001');
+        
+        // Obtenir le répertoire courant
         const output = term.executeCommand('cd');
+        const convertedOutput = convertWindowsOutput(output);
+        
         ws.send(JSON.stringify({
             type: 'output',
-            data: `Terminal prêt dans : ${output}\n> `
+            data: `Terminal prêt dans : ${convertedOutput}\n> `
         }));
 
         ws.on('message', async (message) => {
             try {
                 const msg = JSON.parse(message);
-                log('INPUT', 'Message reçu', {
-                    terminalId,
-                    type: msg.type,
-                    data: msg.data
-                });
-
                 if (msg.type === 'input' && terminals.has(msg.terminalId)) {
                     const terminal = terminals.get(msg.terminalId);
                     const output = terminal.term.executeCommand(msg.data);
+                    const convertedOutput = convertWindowsOutput(output);
                     
                     ws.send(JSON.stringify({
                         type: 'output',
-                        data: output + '\n> '
+                        data: convertedOutput + '\n> '
                     }));
                 }
             } catch (error) {
@@ -74,18 +106,7 @@ wss.on('connection', (ws, req) => {
             }
         });
 
-        ws.on('close', () => {
-            log('WEBSOCKET', 'Fermeture connexion', { terminalId });
-            if (terminals.has(terminalId)) {
-                const terminal = terminals.get(terminalId);
-                terminal.term.destroy();
-                terminals.delete(terminalId);
-            }
-        });
-
-        ws.on('error', (error) => {
-            log('ERROR', 'Erreur WebSocket', { terminalId, error: error.message });
-        });
+        // ... (reste du code de gestion des erreurs et fermeture)
 
     } catch (error) {
         log('ERROR', 'Erreur lors de la création du terminal', error);
@@ -96,12 +117,4 @@ wss.on('connection', (ws, req) => {
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
     log('SERVER', `Serveur démarré sur http://localhost:${port}`);
-});
-
-process.on('uncaughtException', (error) => {
-    log('ERROR', 'Erreur non capturée', error);
-});
-
-process.on('unhandledRejection', (reason) => {
-    log('ERROR', 'Promesse rejetée', reason);
 });

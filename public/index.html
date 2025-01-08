@@ -1,25 +1,19 @@
 <!DOCTYPE html>
 <html lang="fr">
-
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Terminal Web</title>
-    <!-- Google Font Inconsolata -->
     <link rel="preconnect" href="https://fonts.gstatic.com">
-    <link href="https://fonts.googleapis.com/css2?family=Inconsolata&display=swap" rel="stylesheet">
-
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/xterm/css/xterm.css" />
-
     <style>
-        html,
-        body {
+        html, body {
             margin: 0;
             padding: 0;
             height: 100%;
             display: flex;
             flex-direction: column;
-            /* ptit dégradé pour le style, si tu veux */
             background: linear-gradient(135deg, #0f0f0f, #1d1d1d);
             font-family: 'Fira Code', monospace;
             color: #0f0;
@@ -31,23 +25,18 @@
             flex-direction: column;
             padding: 10px;
             background-color: #000;
-            /* un glow pour être stylé */
             box-shadow:
                 inset 0 0 20px rgba(0, 255, 0, 0.2),
                 0 0 10px rgba(0, 255, 0, 0.5);
         }
 
-        /* C’est ici que souvent ça coince : on veut s’assurer que le terminal prenne toute la place */
         #terminal {
             flex: 1;
-            /* prend tout l’espace restant */
             width: 100%;
             height: 100%;
             overflow: hidden;
-            /* xterm gère déjà le scroll, on masque ici le débord */
         }
 
-        /* Status bar tout en bas */
         #status-bar {
             height: 30px;
             background-color: #222;
@@ -64,10 +53,8 @@
             background-color: #333;
             cursor: pointer;
         }
-
     </style>
 </head>
-
 <body>
     <div id="terminal-container">
         <div id="terminal"></div>
@@ -80,5 +67,4 @@
     <script src="/xterm/lib/xterm.js"></script>
     <script type="module" src="script/main.js"></script>
 </body>
-
 </html>
