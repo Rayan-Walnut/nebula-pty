@@ -2,110 +2,106 @@ const express = require('express');
 const http = require('http');
 const WebSocket = require('ws');
 const path = require('path');
-const TerminalModule = require('./build/Release/terminal');
-const Terminal = TerminalModule.Terminal;
-console.log('Module terminal chargé:', TerminalModule);
-
 const os = require('os');
+const Terminal = require('./build/Release/terminal').Terminal;
+
+function log(type, message, data = null) {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] [${type}] ${message}`;
+    console.log(logMessage, data || '');
+}
+
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ 
+    server,
+    perMessageDeflate: false
+});
 
-// Servir les fichiers statiques
-app.use(express.static('public'));
+app.use(express.static(path.join(__dirname, 'public')));
 app.use('/xterm', express.static(path.join(__dirname, 'node_modules/xterm')));
-app.use('/xterm-addon-fit', express.static(path.join(__dirname, 'node_modules/xterm-addon-fit')));
-app.use('/node_modules', express.static(path.join(__dirname, 'node_modules')));
 
-// Route principale
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
-
-// Map pour stocker les instances de terminal
 const terminals = new Map();
-wss.on('connection', (ws) => {
-    console.log('Nouvelle connexion client');
-    
-    // Utiliser le répertoire personnel de l'utilisateur comme chemin initial
-    const homedir = os.homedir();
-    
-    const term = new Terminal({
-        cols: 80,
-        rows: 24,
-        cwd: homedir // Définir le répertoire initial
-    });
 
+wss.on('connection', (ws, req) => {
+    const clientIp = req.socket.remoteAddress;
     const terminalId = Date.now().toString();
-    terminals.set(terminalId, { term, ws });
+    
+    log('WEBSOCKET', 'Nouvelle connexion entrante', { clientIp, terminalId });
 
-    term.onData((data) => {
-        if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'output', data }));
-        }
-    });
+    try {
+        const homedir = os.homedir();
+        log('TERMINAL', 'Création du terminal', { terminalId, homedir });
 
-    // Envoyer l'ID du terminal
-    ws.send(JSON.stringify({ type: 'terminal-id', id: terminalId }));
+        const term = new Terminal({
+            cwd: homedir
+        });
 
-    ws.on('message', (message) => {
-        try {
-            const msg = JSON.parse(message.toString());
-            const terminalData = terminals.get(msg.terminalId);
-            
-            if (!terminalData) return;
+        terminals.set(terminalId, { term, ws });
 
-            if (msg.type === 'input') {
-                terminalData.term.write(msg.data);
+        ws.send(JSON.stringify({ 
+            type: 'terminal-id', 
+            id: terminalId 
+        }));
+
+        // Maintenant le message de bienvenue montre le répertoire actuel
+        const output = term.executeCommand('cd');
+        ws.send(JSON.stringify({
+            type: 'output',
+            data: `Terminal prêt dans : ${output}\n> `
+        }));
+
+        ws.on('message', async (message) => {
+            try {
+                const msg = JSON.parse(message);
+                log('INPUT', 'Message reçu', {
+                    terminalId,
+                    type: msg.type,
+                    data: msg.data
+                });
+
+                if (msg.type === 'input' && terminals.has(msg.terminalId)) {
+                    const terminal = terminals.get(msg.terminalId);
+                    const output = terminal.term.executeCommand(msg.data);
+                    
+                    ws.send(JSON.stringify({
+                        type: 'output',
+                        data: output + '\n> '
+                    }));
+                }
+            } catch (error) {
+                log('ERROR', 'Erreur message', error);
             }
-        } catch (error) {
-            console.error('Erreur de traitement du message:', error);
-        }
-    });
+        });
 
-    ws.on('close', () => {
-        const terminalData = terminals.get(terminalId);
-        if (terminalData) {
-            terminalData.term.destroy();
-            terminals.delete(terminalId);
-        }
-        console.log('Client déconnecté');
-    });
+        ws.on('close', () => {
+            log('WEBSOCKET', 'Fermeture connexion', { terminalId });
+            if (terminals.has(terminalId)) {
+                const terminal = terminals.get(terminalId);
+                terminal.term.destroy();
+                terminals.delete(terminalId);
+            }
+        });
+
+        ws.on('error', (error) => {
+            log('ERROR', 'Erreur WebSocket', { terminalId, error: error.message });
+        });
+
+    } catch (error) {
+        log('ERROR', 'Erreur lors de la création du terminal', error);
+        ws.close();
+    }
 });
 
-
-// Gestion des erreurs serveur WebSocket
-wss.on('error', (error) => {
-    console.error('Erreur serveur WebSocket:', error);
-});
-
-// Démarrage du serveur
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
-    console.log(`Serveur démarré sur http://localhost:${port}`);
+    log('SERVER', `Serveur démarré sur http://localhost:${port}`);
 });
 
-// Gestion de l'arrêt propre
-process.on('SIGTERM', () => {
-    console.log('Signal SIGTERM reçu, arrêt du serveur...');
-    for (const [id, { term }] of terminals) {
-        term.destroy();
-    }
-    terminals.clear();
-    server.close(() => {
-        console.log('Serveur arrêté');
-        process.exit(0);
-    });
+process.on('uncaughtException', (error) => {
+    log('ERROR', 'Erreur non capturée', error);
 });
 
-process.on('SIGINT', () => {
-    console.log('Signal SIGINT reçu, arrêt du serveur...');
-    for (const [id, { term }] of terminals) {
-        term.destroy();
-    }
-    terminals.clear();
-    server.close(() => {
-        console.log('Serveur arrêté');
-        process.exit(0);
-    });
+process.on('unhandledRejection', (reason) => {
+    log('ERROR', 'Promesse rejetée', reason);
 });
