@@ -55,7 +55,6 @@ function convertWindowsOutput(buffer) {
 }
 
 wss.on('connection', (ws, req) => {
-    const clientIp = req.socket.remoteAddress;
     const terminalId = Date.now().toString();
 
     try {
