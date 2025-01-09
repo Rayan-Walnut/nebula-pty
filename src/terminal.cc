@@ -4,6 +4,7 @@
 #include <iostream>
 #include <atomic>
 #include <filesystem>
+std::string currentPath;
 
 class Terminal : public Nan::ObjectWrap
 {
@@ -30,15 +31,24 @@ public:
 private:
     explicit Terminal(const char *initialPath = nullptr) : isRunning(true)
     {
-        if (initialPath && *initialPath) {
-            try {
+        if (initialPath && *initialPath)
+        {
+            try
+            {
                 std::filesystem::path path(initialPath);
-                if (std::filesystem::exists(path) && std::filesystem::is_directory(path)) {
+                if (std::filesystem::exists(path) && std::filesystem::is_directory(path))
+                {
                     workingDirectory = std::filesystem::absolute(path).string();
-                } else {
+                    currentPath = workingDirectory;           // Initialisation de currentPath
+                    SetCurrentDirectory(currentPath.c_str()); // Set initial directory
+                }
+                else
+                {
                     throw std::runtime_error("Le chemin spécifié n'existe pas ou n'est pas un dossier valide");
                 }
-            } catch (const std::exception &e) {
+            }
+            catch (const std::exception &e)
+            {
                 throw std::runtime_error(std::string("Erreur de chemin: ") + e.what());
             }
         }
@@ -62,29 +72,36 @@ private:
     static NAN_METHOD(SetWorkingDirectory)
     {
         Terminal *terminal = Nan::ObjectWrap::Unwrap<Terminal>(info.Holder());
-        
+
         if (!info[0]->IsString())
         {
             return Nan::ThrowTypeError("Le chemin doit être une chaîne de caractères");
         }
 
         v8::String::Utf8Value path(v8::Isolate::GetCurrent(), info[0]);
-        
-        try {
+
+        try
+        {
             std::filesystem::path newPath(*path);
-            if (std::filesystem::exists(newPath) && std::filesystem::is_directory(newPath)) {
+            if (std::filesystem::exists(newPath) && std::filesystem::is_directory(newPath))
+            {
                 terminal->workingDirectory = std::filesystem::absolute(newPath).string();
                 info.GetReturnValue().Set(Nan::True());
-            } else {
+            }
+            else
+            {
                 return Nan::ThrowError("Le chemin spécifié n'existe pas ou n'est pas un dossier valide");
             }
-        } catch (const std::exception &e) {
+        }
+        catch (const std::exception &e)
+        {
             return Nan::ThrowError(e.what());
         }
     }
 
     std::string RunCommand(const char *cmd)
     {
+        std::string command(cmd);
         // Configuration de l'encodage
         SetConsoleOutputCP(CP_UTF8);
         SetConsoleCP(CP_UTF8);
@@ -112,13 +129,30 @@ private:
         si.hStdInput = NULL;
         si.hStdOutput = hWritePipe;
         si.hStdError = hWritePipe;
+        
+        // Gestion spéciale de cd
+        if (command.substr(0, 3) == "cd ")
+        {
+            std::string newPath = command.substr(3);
+            try
+            {
+                std::filesystem::path path(newPath);
+                if (std::filesystem::exists(path))
+                {
+                    currentPath = std::filesystem::absolute(path).string();
+                    SetCurrentDirectory(currentPath.c_str());
+                    return currentPath + "\n";
+                }
+                return "Chemin invalide\n";
+            }
+            catch (...)
+            {
+                return "Erreur de changement de répertoire\n";
+            }
+        }
 
         // Configuration PowerShell avec encodage UTF-8
-        std::string cmdLine = std::string("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"")
-                           + "$OutputEncoding = [System.Text.Encoding]::UTF8; "
-                           + "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; "
-                           + "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; "
-                           + cmd + "\"";
+        std::string cmdLine = std::string("powershell.exe -NoProfile -ExecutionPolicy Bypass -Command \"") + "$OutputEncoding = [System.Text.Encoding]::UTF8; " + "[Console]::OutputEncoding = [System.Text.Encoding]::UTF8; " + "[Console]::InputEncoding = [System.Text.Encoding]::UTF8; " + cmd + "\"";
 
         BOOL success = CreateProcessA(
             NULL,
@@ -128,7 +162,7 @@ private:
             TRUE,
             CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT,
             NULL,
-            workingDirectory.empty() ? NULL : workingDirectory.c_str(),
+            currentPath.empty() ? NULL : currentPath.c_str(), 
             &si,
             &pi);
 
@@ -186,7 +220,7 @@ private:
                     if (Nan::Has(options, cwdKey).FromJust())
                     {
                         v8::String::Utf8Value cwdValue(v8::Isolate::GetCurrent(),
-                                                      Nan::Get(options, cwdKey).ToLocalChecked());
+                                                       Nan::Get(options, cwdKey).ToLocalChecked());
                         if (*cwdValue)
                         {
                             initialPath = *cwdValue;
@@ -245,6 +279,7 @@ private:
 
     std::atomic<bool> isRunning;
     std::string workingDirectory;
+    std::string currentPath; // Ajout comme variable membre
     Nan::Callback dataCallback;
 };
 

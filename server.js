@@ -68,9 +68,6 @@ wss.on('connection', (ws, req) => {
             id: terminalId
         }));
 
-        // Initialiser avec chcp 65001 pour forcer l'UTF-8
-        const initOutput = term.executeCommand('chcp 65001');
-
         // Obtenir le répertoire courant
         const output = term.executeCommand('cd');
         const convertedOutput = convertWindowsOutput(output);
