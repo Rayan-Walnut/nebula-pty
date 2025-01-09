@@ -1,70 +1,41 @@
 <!DOCTYPE html>
 <html lang="fr">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Terminal Web</title>
-    <link rel="preconnect" href="https://fonts.gstatic.com">
-    <link href="https://fonts.googleapis.com/css2?family=Fira+Code&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/xterm/css/xterm.css" />
-    <style>
-        html, body {
-            margin: 0;
-            padding: 0;
-            height: 100%;
-            display: flex;
-            flex-direction: column;
-            background: linear-gradient(135deg, #0f0f0f, #1d1d1d);
-            font-family: 'Fira Code', monospace;
-            color: #0f0;
-        }
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Terminal Web</title>
+  <link rel="preconnect" href="https://fonts.gstatic.com">
+  <link href="https://fonts.googleapis.com/css2?family=Fira+Code&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/xterm/css/xterm.css" />
+  <style>
+    html, body {
+      width: 100%;
+      height: 100%;
+      margin: 0;
+      padding: 0;
+      overflow: hidden;
+      background-color: #282c34; /* ta couleur de fond */
+      font-family: 'Fira Code', monospace;
+      color: #abb2bf;
+    }
 
-        #terminal-container {
-            flex: 1;
-            display: flex;
-            flex-direction: column;
-            padding: 10px;
-            background-color: #000;
-            box-shadow:
-                inset 0 0 20px rgba(0, 255, 0, 0.2),
-                0 0 10px rgba(0, 255, 0, 0.5);
-        }
+    #terminal-container {
+      width: 100%;
+      height: 100%;
+    }
 
-        #terminal {
-            flex: 1;
-            width: 100%;
-            height: 100%;
-            overflow: hidden;
-        }
-
-        #status-bar {
-            height: 30px;
-            background-color: #222;
-            border-top: 1px solid #444;
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding: 4px 10px;
-            font-size: 13px;
-            transition: background-color 0.3s ease;
-        }
-
-        #status-bar:hover {
-            background-color: #333;
-            cursor: pointer;
-        }
-    </style>
+    #terminal {
+      width: 100%;
+      height: 100%;
+    }
+  </style>
 </head>
-<body>
-    <div id="terminal-container">
-        <div id="terminal"></div>
-    </div>
-    <div id="status-bar">
-        <span id="connection-status">Déconnecté</span>
-        <span id="reconnect-info"></span>
-    </div>
 
-    <script src="/xterm/lib/xterm.js"></script>
-    <script type="module" src="script/main.js"></script>
+<body>
+  <div id="terminal-container">
+    <div id="terminal"></div>
+  </div>
+  <script src="/xterm/lib/xterm.js"></script>
+  <script type="module" src="script/main.js"></script>
 </body>
 </html>
