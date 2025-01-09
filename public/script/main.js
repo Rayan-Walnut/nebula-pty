@@ -6,6 +6,7 @@ let terminalId = null;
 let isConnecting = false;
 let commandHistory = [];
 let historyIndex = -1;
+let currentPath = '';
 
 // Configuration du terminal
 const term = new Terminal({
@@ -48,6 +49,11 @@ const term = new Terminal({
     useFlowControl: true
 });
 
+function updatePrompt() {
+    return `PS ${currentPath}> `;
+}
+
+
 function updateStatus(status, info = '') {
     document.getElementById('connection-status').textContent = status;
     document.getElementById('reconnect-info').textContent = info;
@@ -82,6 +88,7 @@ function connect() {
     ws.onerror = (error) => {
         console.error('Erreur WebSocket:', error);
     };
+    // Modifiez la partie ws.onmessage
     ws.onmessage = (event) => {
         try {
             const message = JSON.parse(event.data);
@@ -89,12 +96,33 @@ function connect() {
             if (message.type === 'terminal-id') {
                 terminalId = message.id;
             } else if (message.type === 'output') {
-                // Nettoyage et conversion de l'encodage
-                const cleanOutput = message.data
-                    .replace(/\^[\{\}]/g, '') // Supprime les caractères parasites
-                    .replace(/\u0000/g, '');  // Supprime les caractères nuls
+                // Détection du chemin initial
+                const pathMatch = message.data.match(/Terminal prêt dans : (.*)\n/);
+                if (pathMatch) {
+                    currentPath = pathMatch[1];
+                    // Supprime le message initial et le prompt par défaut
+                    const cleanOutput = message.data.replace(/Terminal prêt dans : .*\n> /, '');
+                    if (cleanOutput) {
+                        term.write(cleanOutput);
+                    }
+                    term.write(updatePrompt());
+                    return;
+                }
 
-                term.write(cleanOutput);
+                // Pour les autres sorties
+                const cleanOutput = message.data
+                    .replace(/\^[\{\}]/g, '')
+                    .replace(/\u0000/g, '')
+                    .replace(/> $/, ''); // Supprime le prompt par défaut
+
+                if (cleanOutput) {
+                    term.write(cleanOutput);
+                }
+
+                // Ajoute le prompt personnalisé après chaque sortie
+                if (message.data.endsWith('> ')) {
+                    term.write(updatePrompt());
+                }
             }
         } catch (error) {
             console.error('Erreur message:', error);
@@ -108,7 +136,7 @@ function handleSpecialCommands(command) {
         case 'clear':
         case 'cls':
             term.write('\x1b[2J\x1b[H');
-            term.write('> ');
+            term.write(updatePrompt());
             return true;
         default:
             return false;
@@ -136,18 +164,16 @@ term.onData(e => {
             }
             currentLine = '';
             break;
-
         case '\u007F': // Backspace
             if (currentLine.length > 0) {
                 currentLine = currentLine.slice(0, -1);
                 term.write('\b \b');
             }
             break;
-
         case '\u001b[A': // Flèche haut
             if (historyIndex > 0) {
                 historyIndex--;
-                term.write('\r\x1b[K> ');
+                term.write('\r\x1b[K' + updatePrompt());
                 currentLine = commandHistory[historyIndex];
                 term.write(currentLine);
             }
@@ -156,13 +182,12 @@ term.onData(e => {
         case '\u001b[B': // Flèche bas
             if (historyIndex < commandHistory.length) {
                 historyIndex++;
-                term.write('\r\x1b[K> ');
+                term.write('\r\x1b[K' + updatePrompt());
                 currentLine = historyIndex < commandHistory.length ?
                     commandHistory[historyIndex] : '';
                 term.write(currentLine);
             }
             break;
-
         default:
             if (e >= String.fromCharCode(32) || e === '\t') {
                 currentLine += e;
