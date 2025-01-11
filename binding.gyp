@@ -1,4 +1,5 @@
 {
+<<<<<<< HEAD
   "target_defaults": {
     "dependencies": [
       "<!(node -p \"require('node-addon-api').targets\"):node_addon_api_except"
@@ -50,6 +51,22 @@
           "ExceptionHandling": 1
         }
       }
+=======
+  "targets": [
+    {
+      "target_name": "terminal",
+      "sources": [
+        "src/terminal.cc",
+        "src/Logger/logger.cc"
+      ],
+      "include_dirs": [
+        "<!(node -e \"require('nan')\")",
+        "<!(node -p \"require('node-addon-api').include\")",
+        "src"
+      ],
+      'cflags!': [ '-fno-exceptions' ],
+      'cflags_cc!': [ '-fno-exceptions' ]
+>>>>>>> 5b0892aac6276a1b3194bb950640099db31811b9
     }
   ]
 }

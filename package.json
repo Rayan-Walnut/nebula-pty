@@ -1,6 +1,7 @@
 {
   "name": "nebula-pty",
   "version": "1.0.0",
+<<<<<<< HEAD
   "description": "Terminal web avec Node.js et C++",
   "main": "index.js",
   "scripts": {
@@ -19,5 +20,25 @@
   },
   "dependencies": {
     "node-addon-api": "^8.3.0"
+=======
+  "description": "Custom PTY module",
+  "main": "index.js",
+  "scripts": {
+    "build": "node-gyp rebuild",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@xterm/xterm": "^5.5.0",
+    "express": "^4.21.2",
+    "iconv-lite": "^0.6.3",
+    "nan": "^2.22.0",
+    "node-addon-api": "^8.3.0",
+    "ws": "^8.18.0",
+    "xterm": "^5.3.0",
+    "xterm-addon-fit": "^0.8.0"
+  },
+  "devDependencies": {
+    "node-gyp": "^9.0.0"
+>>>>>>> 5b0892aac6276a1b3194bb950640099db31811b9
   }
 }

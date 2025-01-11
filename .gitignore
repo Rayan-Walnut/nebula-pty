@@ -10,6 +10,7 @@ logs/
 
 # Dependency directories
 jspm_packages/
+<<<<<<< HEAD
 
 # Optional npm cache directory
 .npm
@@ -29,3 +30,25 @@ jspm_packages/
 # Windows
 Thumbs.db
 ehthumbs.db
+=======
+bower_components/
+
+# Build directories
+dist/
+build/
+
+# Environment variables
+.env
+
+# IDEs and editors
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS files
+.DS_Store
+Thumbs.db
+>>>>>>> 5b0892aac6276a1b3194bb950640099db31811b9
