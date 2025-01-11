@@ -1,0 +1,23 @@
+{
+  "name": "nebula-pty",
+  "version": "1.0.0",
+  "description": "Terminal web avec Node.js et C++",
+  "main": "index.js",
+  "scripts": {
+    "install": "node-gyp rebuild",
+    "test": "node test/test.js"
+  },
+  "keywords": [
+    "terminal",
+    "pty",
+    "node-addon"
+  ],
+  "author": "",
+  "license": "ISC",
+  "devDependencies": {
+    "node-gyp": "^10.0.1"
+  },
+  "dependencies": {
+    "node-addon-api": "^8.3.0"
+  }
+}

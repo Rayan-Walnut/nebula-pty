@@ -1,0 +1,4 @@
+C:\Users\prora\Desktop\nebula-pty\src\terminal.cc;C:\Users\prora\Desktop\nebula-pty\build\Release\obj\terminal\src\terminal.obj
+C:\Users\prora\Desktop\nebula-pty\src\win\conpty.cc;C:\Users\prora\Desktop\nebula-pty\build\Release\obj\terminal\src\win\conpty.obj
+C:\Users\prora\Desktop\nebula-pty\src\win\path_util.cc;C:\Users\prora\Desktop\nebula-pty\build\Release\obj\terminal\src\win\path_util.obj
+C:\Users\prora\Desktop\nebula-pty\node_modules\node-gyp\src\win_delay_load_hook.cc;C:\Users\prora\Desktop\nebula-pty\build\Release\obj\terminal\win_delay_load_hook.obj
