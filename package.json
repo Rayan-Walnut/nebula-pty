@@ -1,12 +1,12 @@
 {
   "name": "nebula-pty",
   "version": "1.0.0",
-<<<<<<< HEAD
-  "description": "Terminal web avec Node.js et C++",
+  "description": "Custom PTY module",
   "main": "index.js",
   "scripts": {
-    "install": "node-gyp rebuild",
-    "test": "node test/test.js"
+    "build": "node-gyp rebuild",
+    "start": "node server.js",
+    "test": "node test/test-interactive.js"
   },
   "keywords": [
     "terminal",
@@ -15,18 +15,6 @@
   ],
   "author": "",
   "license": "ISC",
-  "devDependencies": {
-    "node-gyp": "^10.0.1"
-  },
-  "dependencies": {
-    "node-addon-api": "^8.3.0"
-=======
-  "description": "Custom PTY module",
-  "main": "index.js",
-  "scripts": {
-    "build": "node-gyp rebuild",
-    "start": "node server.js"
-  },
   "dependencies": {
     "@xterm/xterm": "^5.5.0",
     "express": "^4.21.2",
@@ -38,7 +26,6 @@
     "xterm-addon-fit": "^0.8.0"
   },
   "devDependencies": {
-    "node-gyp": "^9.0.0"
->>>>>>> 5b0892aac6276a1b3194bb950640099db31811b9
+    "node-gyp": "^10.0.1"
   }
 }

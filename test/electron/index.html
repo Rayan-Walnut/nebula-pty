@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Terminal Test</title>
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'">
+    <link rel="stylesheet" href="node_modules/xterm/css/xterm.css" />
+</head>
+<body>
+    <div id="xterm" style="height: 100vh"></div>
+    <script>
+        // Indiquer que nous utilisons Node.js
+        window.nodeRequire = require;
+    </script>
+    <script src="renderer.js"></script>
+</body>
+</html>

@@ -1,15 +1,8 @@
-#ifndef TERMINAL_H
-#define TERMINAL_H
-
+#pragma once
 #include <napi.h>
-#include <windows.h>
-#include <string>
 #include <memory>
 #include <thread>
-
-namespace conpty {
-    class ConPTY;
-}
+#include "win/conpty.h"
 
 namespace terminal {
 
@@ -20,23 +13,19 @@ public:
     ~WebTerminal();
 
 private:
-    // Node.js methods
     Napi::Value StartProcess(const Napi::CallbackInfo& info);
     Napi::Value Write(const Napi::CallbackInfo& info);
     Napi::Value OnData(const Napi::CallbackInfo& info);
     Napi::Value Resize(const Napi::CallbackInfo& info);
     Napi::Value Echo(const Napi::CallbackInfo& info);
-
-    // Internal methods
     void ReadLoop();
 
-    // Member variables
     std::unique_ptr<conpty::ConPTY> pty;
+    std::thread readThread;
     Napi::ThreadSafeFunction tsfn;
     bool running;
-    std::thread readThread;
+    bool initialized;  // Ajout de la variable manquante
+    DWORD processId;  // Ajout de la variable manquante
 };
 
-}  // namespace terminal
-
-#endif // TERMINAL_H
+}

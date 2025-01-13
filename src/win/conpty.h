@@ -1,8 +1,14 @@
-#ifndef CONPTY_H
-#define CONPTY_H
+#pragma once
 
-#include <windows.h>
+#include <Windows.h>
 #include <string>
+
+#ifndef PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE
+#define PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE \
+    ProcThreadAttributeValue(22, FALSE, TRUE, FALSE)
+#endif
+
+typedef void *HPCON;
 
 namespace conpty {
 
@@ -11,23 +17,27 @@ public:
     ConPTY();
     ~ConPTY();
 
-    bool Create(SHORT width, SHORT height);
-    bool Start(const std::wstring& command);
-    bool Write(const void* data, DWORD length, DWORD* written);
-    bool Read(void* data, DWORD length, DWORD* read);
-    bool Resize(SHORT width, SHORT height);
+    bool Create(SHORT cols, SHORT rows);
+    bool Start(const std::wstring &command);
+    bool Write(const char *data, DWORD length, DWORD *written);
+    bool Read(char *data, DWORD length, DWORD *read);
+    bool Resize(SHORT cols, SHORT rows);
     void Close();
 
+    DWORD GetProcessId() const { return processId; }
+
 private:
-    HPCON hPC;
+    bool CreatePipes();
+    bool CreatePseudoConsole(SHORT cols, SHORT rows);
+    bool StartProcess(const std::wstring &command);
+
     HANDLE hPipeIn;
     HANDLE hPipeOut;
+    HPCON hPC;
     HANDLE hProcess;
-    bool running;
-
-    void CleanupHandles();
+    HANDLE hThread;
+    DWORD processId;
+    bool isInitialized;
 };
 
 } // namespace conpty
-
-#endif // CONPTY_H
