@@ -38,21 +38,46 @@ Nebula PTY is a modern and efficient pseudo-terminal library for Windows. This p
 Once the library is built, you can use it to create and manage pseudo-terminals in your applications. Here is a basic example of how to use Nebula PTY with Node.js:
 
 ```javascript
-const { spawn } = require('child_process');
-const pty = require('nebula-pty');
+const os = require('os');
+const { Terminal } = require('xterm');
+const { FitAddon } = require('xterm-addon-fit');
+const { WebLinksAddon } = require('xterm-addon-web-links');
+const { WebTerminal } = require('../../build/Release/terminal.node');
 
-const shell = process.env.ComSpec || 'cmd.exe';
-const ptyProcess = pty.spawn(shell, [], {
-    name: 'xterm-color',
-    cols: 80,
-    rows: 30,
-    cwd: process.env.HOME,
+const term = new Terminal({
+    cursorBlink: true,
+    cursorStyle: 'block',
+    fontFamily: 'Consolas, monospace',
+    theme: {
+        background: '#1e1e1e',
+        foreground: '#d4d4d4',
+        cursor: '#ffffff'
+    }
+});
+
+const fitAddon = new FitAddon();
+term.loadAddon(fitAddon);
+term.loadAddon(new WebLinksAddon());
+
+term.open(document.getElementById('terminal-container'));
+fitAddon.fit();
+
+const ptyProcess = new WebTerminal();
+ptyProcess.startProcess({
+    cols: term.cols,
+    rows: term.rows,
     env: process.env
 });
 
-ptyProcess.on('data', function(data) {
-    console.log(data);
+term.onData(data => ptyProcess.write(data));
+ptyProcess.onData(data => term.write(data));
+
+window.addEventListener('resize', () => {
+    fitAddon.fit();
+    ptyProcess.resize(term.cols, term.rows);
 });
+
+term.focus();
 ```
 
 ## Contributing
