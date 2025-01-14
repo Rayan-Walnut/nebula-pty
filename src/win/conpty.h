@@ -23,16 +23,17 @@ public:
     bool Read(char *data, DWORD length, DWORD *read);
     bool Resize(SHORT cols, SHORT rows);
     void Close();
-
+    bool IsActive() const;
     DWORD GetProcessId() const { return processId; }
 
 private:
     bool CreatePipes();
     bool CreatePseudoConsole(SHORT cols, SHORT rows);
-    bool StartProcess(const std::wstring &command);
 
     HANDLE hPipeIn;
     HANDLE hPipeOut;
+    HANDLE hPtyIn;
+    HANDLE hPtyOut;
     HPCON hPC;
     HANDLE hProcess;
     HANDLE hThread;

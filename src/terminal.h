@@ -1,10 +1,13 @@
 #pragma once
 #include <napi.h>
-#include <memory>
 #include <thread>
-#include "win/conpty.h"
+#include <atomic>
+#include <memory>
+#include <Windows.h>  // Ajout de cet include pour DWORD
 
-namespace terminal {
+namespace conpty {
+    class ConPTY;
+}
 
 class WebTerminal : public Napi::ObjectWrap<WebTerminal> {
 public:
@@ -21,11 +24,9 @@ private:
     void ReadLoop();
 
     std::unique_ptr<conpty::ConPTY> pty;
+    std::atomic<bool> running;
+    bool initialized;
+    DWORD processId;  // Maintenant DWORD est défini grâce à l'include Windows.h
     std::thread readThread;
     Napi::ThreadSafeFunction tsfn;
-    bool running;
-    bool initialized;  // Ajout de la variable manquante
-    DWORD processId;  // Ajout de la variable manquante
 };
-
-}

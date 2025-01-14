@@ -2,8 +2,8 @@
   "targets": [{
     "target_name": "terminal",
     "sources": [ 
-      "src/terminal.cc",
-      "src/win/conpty.cc"
+      "./src/terminal.cc",
+      "./src/win/conpty.cc"
     ],
     "include_dirs": [
       "<!@(node -p \"require('node-addon-api').include\")",

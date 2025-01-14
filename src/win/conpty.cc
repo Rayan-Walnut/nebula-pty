@@ -1,22 +1,53 @@
 #include "win/conpty.h"
 #include <iostream>
 #include <vector>
-#include <windows.h>
 
 namespace conpty {
 
 ConPTY::ConPTY() 
     : hPipeIn(INVALID_HANDLE_VALUE)
     , hPipeOut(INVALID_HANDLE_VALUE)
+    , hPtyIn(INVALID_HANDLE_VALUE)
+    , hPtyOut(INVALID_HANDLE_VALUE)
     , hPC(nullptr)
     , hProcess(INVALID_HANDLE_VALUE)
     , hThread(INVALID_HANDLE_VALUE)
-    , processId(0)  
+    , processId(0)
     , isInitialized(false) {
 }
 
 ConPTY::~ConPTY() {
     Close();
+}
+
+bool ConPTY::IsActive() const {
+    return (hPC != nullptr);
+}
+
+bool ConPTY::CreatePipes() {
+    SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE };
+    
+    // Créer des pipes anonymes
+    if (!CreatePipe(&hPtyIn, &hPipeIn, &sa, 0)) {
+        std::cerr << "Failed to create input pipe: " << GetLastError() << std::endl;
+        return false;
+    }
+
+    if (!CreatePipe(&hPipeOut, &hPtyOut, &sa, 0)) {
+        CloseHandle(hPtyIn);
+        CloseHandle(hPipeIn);
+        std::cerr << "Failed to create output pipe: " << GetLastError() << std::endl;
+        return false;
+    }
+
+    // Configurer les handles pour l'E/S asynchrone
+    if (!SetHandleInformation(hPipeIn, HANDLE_FLAG_INHERIT, 0) ||
+        !SetHandleInformation(hPipeOut, HANDLE_FLAG_INHERIT, 0)) {
+        Close();
+        return false;
+    }
+
+    return true;
 }
 
 bool ConPTY::Create(SHORT cols, SHORT rows) {
@@ -37,55 +68,9 @@ bool ConPTY::Create(SHORT cols, SHORT rows) {
     return true;
 }
 
-bool ConPTY::CreatePipes() {
-    SECURITY_ATTRIBUTES sa = { sizeof(SECURITY_ATTRIBUTES), nullptr, TRUE };
-    
-    // Créer les pipes avec des noms uniques
-    WCHAR pipeName[MAX_PATH];
-    swprintf_s(pipeName, L"\\\\.\\pipe\\conpty-%08x", GetCurrentProcessId());
-    
-    hPipeIn = CreateNamedPipeW(
-        pipeName,
-        PIPE_ACCESS_INBOUND,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-        1,
-        0,
-        0,
-        0,
-        &sa
-    );
-
-    if (hPipeIn == INVALID_HANDLE_VALUE) {
-        std::cerr << "Failed to create input pipe: " << GetLastError() << std::endl;
-        return false;
-    }
-
-    swprintf_s(pipeName, L"\\\\.\\pipe\\conpty-%08x-out", GetCurrentProcessId());
-    hPipeOut = CreateNamedPipeW(
-        pipeName,
-        PIPE_ACCESS_OUTBOUND,
-        PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT,
-        1,
-        0,
-        0,
-        0,
-        &sa
-    );
-
-    if (hPipeOut == INVALID_HANDLE_VALUE) {
-        CloseHandle(hPipeIn);
-        hPipeIn = INVALID_HANDLE_VALUE;
-        std::cerr << "Failed to create output pipe: " << GetLastError() << std::endl;
-        return false;
-    }
-
-    return true;
-}
-
 bool ConPTY::CreatePseudoConsole(SHORT cols, SHORT rows) {
     HMODULE hLibrary = LoadLibraryExW(L"kernel32.dll", nullptr, 0);
     if (!hLibrary) {
-        std::cerr << "Failed to load kernel32.dll" << std::endl;
         return false;
     }
 
@@ -94,22 +79,16 @@ bool ConPTY::CreatePseudoConsole(SHORT cols, SHORT rows) {
         GetProcAddress(hLibrary, "CreatePseudoConsole"));
 
     if (!pfnCreatePseudoConsole) {
-        std::cerr << "Failed to get CreatePseudoConsole function" << std::endl;
         FreeLibrary(hLibrary);
         return false;
     }
 
     COORD size = { cols, rows };
-    HRESULT hr = pfnCreatePseudoConsole(size, hPipeIn, hPipeOut, 0, &hPC);
+    HRESULT hr = pfnCreatePseudoConsole(size, hPtyIn, hPtyOut, 0, &hPC);
     
     FreeLibrary(hLibrary);
 
-    if (FAILED(hr)) {
-        std::cerr << "Failed to create pseudo console: 0x" << std::hex << hr << std::endl;
-        return false;
-    }
-
-    return true;
+    return SUCCEEDED(hr);
 }
 
 bool ConPTY::Start(const std::wstring& command) {
@@ -151,7 +130,7 @@ bool ConPTY::Start(const std::wstring& command) {
         nullptr,
         nullptr,
         FALSE,
-        EXTENDED_STARTUPINFO_PRESENT | CREATE_NO_WINDOW,
+        EXTENDED_STARTUPINFO_PRESENT,
         nullptr,
         nullptr,
         &siEx.StartupInfo,
@@ -168,34 +147,19 @@ bool ConPTY::Start(const std::wstring& command) {
 }
 
 bool ConPTY::Write(const char* data, DWORD length, DWORD* written) {
-    if (!isInitialized) return false;
+    if (!isInitialized || hPipeIn == INVALID_HANDLE_VALUE) {
+        return false;
+    }
 
-    // Convertir en UTF-16 pour Windows
-    int wlen = MultiByteToWideChar(CP_UTF8, 0, data, length, NULL, 0);
-    std::vector<WCHAR> wdata(wlen);
-    MultiByteToWideChar(CP_UTF8, 0, data, length, wdata.data(), wlen);
-    
-    // Convertir en retour en UTF-8 pour le pipe
-    int utf8len = WideCharToMultiByte(CP_UTF8, 0, wdata.data(), wlen, NULL, 0, NULL, NULL);
-    std::vector<char> utf8data(utf8len);
-    WideCharToMultiByte(CP_UTF8, 0, wdata.data(), wlen, utf8data.data(), utf8len, NULL, NULL);
-    
-    return WriteFile(hPipeOut, utf8data.data(), utf8len, written, nullptr);
+    return WriteFile(hPipeIn, data, length, written, nullptr);
 }
 
 bool ConPTY::Read(char* data, DWORD length, DWORD* read) {
-    if (!isInitialized) return false;
-
-    DWORD bytesRead = 0;
-    bool success = ReadFile(hPipeIn, data, length, &bytesRead, nullptr);
-    
-    if (success && bytesRead > 0) {
-        *read = bytesRead;
-    } else {
-        *read = 0;
+    if (!isInitialized || hPipeOut == INVALID_HANDLE_VALUE) {
+        return false;
     }
-    
-    return success;
+
+    return ReadFile(hPipeOut, data, length, read, nullptr);
 }
 
 bool ConPTY::Resize(SHORT cols, SHORT rows) {
@@ -255,6 +219,16 @@ void ConPTY::Close() {
     if (hPipeOut != INVALID_HANDLE_VALUE) {
         CloseHandle(hPipeOut);
         hPipeOut = INVALID_HANDLE_VALUE;
+    }
+
+    if (hPtyIn != INVALID_HANDLE_VALUE) {
+        CloseHandle(hPtyIn);
+        hPtyIn = INVALID_HANDLE_VALUE;
+    }
+
+    if (hPtyOut != INVALID_HANDLE_VALUE) {
+        CloseHandle(hPtyOut);
+        hPtyOut = INVALID_HANDLE_VALUE;
     }
 
     processId = 0;
