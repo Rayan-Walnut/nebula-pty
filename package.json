@@ -1,46 +1,48 @@
 {
   "name": "nebula-pty",
-  "version": "1.0.3",
+  "version": "1.0.5",
   "description": "Custom PTY module for terminal emulation in Electron applications",
   "main": "index.js",
   "files": [
     "index.js",
+    "binding.gyp",
+    "src/**/*",
     "build/Release/terminal.node",
     "scripts/",
-    "README.md"
+    "README.md",
+    "CMakeLists.txt"
   ],
   "scripts": {
-    "install": "node-gyp rebuild",
+    "install": "npm config set python \"C:\\Users\\prora\\AppData\\Local\\Programs\\Python\\Python313\\python.exe\" && node-gyp rebuild",
     "build": "node-gyp rebuild",
-    "start": "electron ."
+    "start": "electron .",
+    "test": "node test/test-interactive.js"
   },
-  "keywords": [
-    "terminal",
-    "pty",
-    "node-addon",
-    "electron",
-    "xterm",
-    "shell"
-  ],
-  "author": "Your Name",
-  "license": "ISC",
+  "binary": {
+    "module_name": "terminal",
+    "module_path": "./build/Release/",
+    "host": "https://github.com/yourusername/nebula-pty/releases/download/",
+    "remote_path": "{version}",
+    "package_name": "{module_name}-v{version}-{node_abi}-{platform}-{arch}.tar.gz",
+    "module_main": "index.js"
+  },
   "dependencies": {
     "@xterm/xterm": "^5.3.0",
-    "@xterm/addon-fit": "^0.9.0",
-    "xterm-addon-web-links": "^0.9.0",
-    "express": "^4.21.2",
-    "iconv-lite": "^0.6.3",
-    "nan": "^2.22.0",
+    "@xterm/addon-fit": "^0.8.0",
+    "@xterm/addon-web-links": "^0.8.0",
     "node-addon-api": "^8.3.0",
-    "ws": "^8.18.0"
+    "node-gyp": "^10.0.1"
   },
   "devDependencies": {
-    "node-gyp": "^10.0.1",
-    "electron": "^28.0.0"
+    "electron": "^28.0.0",
+    "electron-rebuild": "^3.2.0"
   },
   "gypfile": true,
   "engines": {
     "node": ">=14.0.0",
     "npm": ">=6.0.0"
+  },
+  "config": {
+    "python": "C:\\Users\\prora\\AppData\\Local\\Programs\\Python\\Python313\\python.exe"
   }
 }
