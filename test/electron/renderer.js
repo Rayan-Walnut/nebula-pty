@@ -2,7 +2,7 @@ const os = require('os');
 const { Terminal } = require('xterm');
 const { FitAddon } = require('xterm-addon-fit');
 const { WebLinksAddon } = require('xterm-addon-web-links');
-const { WebTerminal } = require('../../build/Release/terminal.node');
+const { WebTerminal } = require('nebula-pty');
 
 const term = new Terminal({
     cursorBlink: true,
