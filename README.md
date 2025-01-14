@@ -5,7 +5,6 @@ Nebula PTY is a modern and efficient pseudo-terminal library for Windows. This p
 ## Requirements
 
 - `mingw`
-- `cmake`
 - `nodejs`
 - `python`
 
@@ -17,22 +16,21 @@ Nebula PTY is a modern and efficient pseudo-terminal library for Windows. This p
     cd nebula-pty
     ```
 
-2. Clone the `winpty` dependency:
+2. Check dependencies:
     ```sh
-    git clone https://github.com/rprichard/winpty.git deps/winpty
+    script/check.bat
+    ```
+    Install all dependencies.
+
+3. Build the project:
+    ```sh
+    npm run build
     ```
 
-3. Install Node.js dependencies:
+4. Test with Electron:
     ```sh
-    npm install
-    ```
-
-4. Build the project:
-    ```sh
-    mkdir build
-    cd build
-    cmake ..
-    cmake --build .
+    cd test/electron
+    npm run start
     ```
 
 ## Usage
@@ -64,7 +62,3 @@ Contributions are welcome! Please open an issue or submit a pull request on GitH
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
-
-## Acknowledgements
-
-Special thanks to the contributors of the `winpty` project for their hard work and dedication.
