@@ -44,48 +44,90 @@ Napi::Object WebTerminal::Init(Napi::Env env, Napi::Object exports) {
 }
 
 void WebTerminal::ReadLoop() {
-    if (!pty) return;
+    if (!pty) {
+        std::cerr << "ReadLoop: PTY is null" << std::endl;
+        return;
+    }
 
     std::cout << "ReadLoop started with running = " << (running ? "true" : "false") << std::endl;
     const DWORD bufSize = 4096;
+    std::string accumulatedData;  // Buffer pour accumuler les données
     std::vector<char> buffer(bufSize);
     DWORD bytesRead;
+    int consecutiveErrors = 0;
+    const int MAX_CONSECUTIVE_ERRORS = 10;
 
-    // Attendre un peu que le processus soit initialisé
-    std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-    int readAttempts = 0;
     while (running.load()) {
-        std::cout << "Read attempt #" << ++readAttempts << std::endl;
-        
-        if (pty->Read(buffer.data(), bufSize - 1, &bytesRead)) {
-            std::cout << "Read successful, bytes read: " << bytesRead << std::endl;
-            if (bytesRead > 0) {
-                buffer[bytesRead] = '\0';
-                std::cout << "Data read: " << buffer.data() << std::endl;
+        try {
+            if (pty->Read(buffer.data(), bufSize - 1, &bytesRead)) {
+                consecutiveErrors = 0;
                 
-                auto callback = [](Napi::Env env, Napi::Function jsCallback, std::vector<char>* data) {
-                    auto buf = Napi::Buffer<char>::Copy(env, data->data(), data->size());
-                    jsCallback.Call({buf});
-                    delete data;
-                };
+                if (bytesRead > 0) {
+                    buffer[bytesRead] = '\0';
+                    std::cout << "Data read success: " << bytesRead << " bytes" << std::endl;
 
-                std::vector<char>* dataToSend = new std::vector<char>(buffer.begin(), buffer.begin() + bytesRead);
-                tsfn.NonBlockingCall(dataToSend, callback);
+                    // Accumuler les données
+                    accumulatedData.append(buffer.data(), bytesRead);
+
+                    // Chercher des lignes complètes
+                    size_t pos;
+                    while ((pos = accumulatedData.find('\n')) != std::string::npos) {
+                        // Extraire une ligne complète
+                        std::string line = accumulatedData.substr(0, pos + 1);
+                        accumulatedData.erase(0, pos + 1);
+
+                        auto callback = [](Napi::Env env, Napi::Function jsCallback, std::vector<char>* data) {
+                            if (!data) return;
+                            auto buf = Napi::Buffer<char>::Copy(env, data->data(), data->size());
+                            jsCallback.Call({buf});
+                            delete data;
+                        };
+
+                        // Envoyer la ligne complète
+                        std::vector<char>* dataToSend = new std::vector<char>(line.begin(), line.end());
+                        tsfn.NonBlockingCall(dataToSend, callback);
+                    }
+                }
+            } else {
+                DWORD error = GetLastError();
+                
+                if (error != ERROR_NO_DATA && error != ERROR_BROKEN_PIPE) {
+                    consecutiveErrors++;
+                    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
+                        break;
+                    }
+                }
+
+                std::this_thread::sleep_for(std::chrono::milliseconds(50));
             }
-        } else {
-            DWORD error = GetLastError();
-            std::cout << "Read attempt failed with error: " << error << std::endl;
-            if (error != ERROR_NO_DATA && error != ERROR_BROKEN_PIPE) {
-                std::cout << "Breaking read loop due to error" << std::endl;
-                break;
-            }
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        } catch (const std::exception& e) {
+            std::cerr << "Exception in ReadLoop: " << e.what() << std::endl;
+            consecutiveErrors++;
+            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
     }
     
-    std::cout << "ReadLoop ending with running = " << (running ? "true" : "false") << std::endl;
-    tsfn.Release();
+    // Envoyer les données restantes si nécessaire
+    if (!accumulatedData.empty()) {
+        auto callback = [](Napi::Env env, Napi::Function jsCallback, std::vector<char>* data) {
+            if (!data) return;
+            auto buf = Napi::Buffer<char>::Copy(env, data->data(), data->size());
+            jsCallback.Call({buf});
+            delete data;
+        };
+
+        std::vector<char>* dataToSend = new std::vector<char>(accumulatedData.begin(), accumulatedData.end());
+        tsfn.NonBlockingCall(dataToSend, callback);
+    }
+
+    std::cout << "ReadLoop ending, running = " << (running ? "true" : "false") << std::endl;
+    
+    try {
+        tsfn.Release();
+    } catch (const std::exception& e) {
+        std::cerr << "Error releasing tsfn: " << e.what() << std::endl;
+    }
 }
 
 Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo& info) {
@@ -99,7 +141,7 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo& info) {
         running = true;
         std::cout << "Setting running to true" << std::endl;
 
-        SHORT width = 80, height = 24;
+        SHORT width = 120, height = 30;
         if (info.Length() > 0 && info[0].IsObject()) {
             Napi::Object options = info[0].As<Napi::Object>();
             if (options.Has("cols")) {
@@ -112,34 +154,61 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo& info) {
 
         std::cout << "Creating PTY with size: " << width << "x" << height << std::endl;
 
-        if (!pty->Create(width, height)) {
-            running = false;
-            std::cout << "ConPTY creation failed with error: " << GetLastError() << std::endl;
-            throw std::runtime_error("Failed to create pseudo console");
+        // Configuration UTF-8
+        if (!SetConsoleOutputCP(CP_UTF8) || !SetConsoleCP(CP_UTF8)) {
+            std::cerr << "Failed to set console code page to UTF-8" << std::endl;
         }
 
-        std::wstring shellPath = L"cmd.exe";
-        std::cout << "Starting shell at: cmd.exe" << std::endl;
+        if (!pty->Create(width, height)) {
+            running = false;
+            DWORD error = GetLastError();
+            std::cout << "ConPTY creation failed with error: " << error << std::endl;
+            throw Napi::Error::New(env, "Failed to create pseudo console: " + std::to_string(error));
+        }
+
+        std::wstring shellPath = L"powershell.exe";
+        std::cout << "Starting shell at: powershell.exe" << std::endl;
 
         if (!pty->Start(shellPath)) {
             running = false;
-            std::cout << "Failed to start shell with error: " << GetLastError() << std::endl;
-            throw std::runtime_error("Failed to start process");
+            DWORD error = GetLastError();
+            std::cout << "Failed to start shell with error: " << error << std::endl;
+            throw Napi::Error::New(env, "Failed to start process: " + std::to_string(error));
         }
 
-        // Attendre que le processus soit démarré
-        std::this_thread::sleep_for(std::chrono::milliseconds(500));
+        // Vérifier que le processus est bien démarré
+        if (pty->GetProcessId() == 0) {
+            running = false;
+            throw Napi::Error::New(env, "Process started but no PID obtained");
+        }
+
+        // Attendre l'initialisation
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
         processId = pty->GetProcessId();
         initialized = true;
 
+        // Vérifier que le processus est toujours en vie
+        HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, processId);
+        if (hProcess != NULL) {
+            DWORD exitCode;
+            if (GetExitCodeProcess(hProcess, &exitCode) && exitCode != STILL_ACTIVE) {
+                CloseHandle(hProcess);
+                running = false;
+                throw Napi::Error::New(env, "Process terminated prematurely");
+            }
+            CloseHandle(hProcess);
+        }
+
         std::cout << "Process started with PID: " << processId << std::endl;
 
         // Test d'écriture initial
+        const char* initialCmd = "chcp 65001 && echo Terminal Ready\r\n";
         DWORD written;
-        const char* initialCmd = "echo Terminal Ready\r\n";
         if (!pty->Write(initialCmd, strlen(initialCmd), &written)) {
             std::cout << "Initial write test failed with error: " << GetLastError() << std::endl;
+        } else {
+            std::cout << "Initial command written successfully: " << written << " bytes" << std::endl;
         }
 
         return Napi::Number::New(env, processId);

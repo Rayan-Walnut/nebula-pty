@@ -3,7 +3,7 @@
 #include <thread>
 #include <atomic>
 #include <memory>
-#include <Windows.h>  // Ajout de cet include pour DWORD
+#include <Windows.h>
 
 namespace conpty {
     class ConPTY;
@@ -26,7 +26,7 @@ private:
     std::unique_ptr<conpty::ConPTY> pty;
     std::atomic<bool> running;
     bool initialized;
-    DWORD processId;  // Maintenant DWORD est défini grâce à l'include Windows.h
+    DWORD processId;
     std::thread readThread;
     Napi::ThreadSafeFunction tsfn;
 };
