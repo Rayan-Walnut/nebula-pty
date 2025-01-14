@@ -1,6 +1,6 @@
 {
   "name": "nebula-pty",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Custom PTY module for terminal emulation in Electron applications",
   "main": "index.js",
   "files": [
