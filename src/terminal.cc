@@ -5,124 +5,73 @@
 #include <vector>
 #include <Windows.h>
 
-WebTerminal::WebTerminal(const Napi::CallbackInfo& info)
+WebTerminal::WebTerminal(const Napi::CallbackInfo &info)
     : Napi::ObjectWrap<WebTerminal>(info),
       pty(nullptr),
       running(false),
       initialized(false),
-      processId(0) {
+      processId(0)
+{
     std::cout << "Terminal constructor called" << std::endl;
     pty = std::make_unique<conpty::ConPTY>();
 }
 
-WebTerminal::~WebTerminal() {
+WebTerminal::~WebTerminal()
+{
     std::cout << "Terminal destructor called" << std::endl;
     running = false;
-    if (readThread.joinable()) {
+    if (readThread.joinable())
+    {
         readThread.join();
     }
-    if (pty) {
+    if (pty)
+    {
         pty->Close();
     }
 }
 
-Napi::Object WebTerminal::Init(Napi::Env env, Napi::Object exports) {
-    Napi::Function func = DefineClass(env, "WebTerminal", {
-        InstanceMethod("startProcess", &WebTerminal::StartProcess),
-        InstanceMethod("write", &WebTerminal::Write),
-        InstanceMethod("onData", &WebTerminal::OnData),
-        InstanceMethod("resize", &WebTerminal::Resize),
-        InstanceMethod("echo", &WebTerminal::Echo)
-    });
+Napi::Object WebTerminal::Init(Napi::Env env, Napi::Object exports)
+{
+    Napi::Function func = DefineClass(env, "WebTerminal", {InstanceMethod("startProcess", &WebTerminal::StartProcess), InstanceMethod("write", &WebTerminal::Write), InstanceMethod("onData", &WebTerminal::OnData), InstanceMethod("resize", &WebTerminal::Resize), InstanceMethod("echo", &WebTerminal::Echo)});
 
-    Napi::FunctionReference* constructor = new Napi::FunctionReference();
+    Napi::FunctionReference *constructor = new Napi::FunctionReference();
     *constructor = Napi::Persistent(func);
     env.SetInstanceData(constructor);
 
     exports.Set("WebTerminal", func);
     return exports;
 }
-
 void WebTerminal::ReadLoop() {
     if (!pty) {
         std::cerr << "ReadLoop: PTY is null" << std::endl;
         return;
     }
 
-    std::cout << "ReadLoop started with running = " << (running ? "true" : "false") << std::endl;
-    const DWORD bufSize = 4096;
-    std::string accumulatedData;  // Buffer pour accumuler les données
+    const DWORD bufSize = 1024;
     std::vector<char> buffer(bufSize);
     DWORD bytesRead;
-    int consecutiveErrors = 0;
-    const int MAX_CONSECUTIVE_ERRORS = 10;
 
     while (running.load()) {
-        try {
-            if (pty->Read(buffer.data(), bufSize - 1, &bytesRead)) {
-                consecutiveErrors = 0;
-                
-                if (bytesRead > 0) {
-                    buffer[bytesRead] = '\0';
-                    std::cout << "Data read success: " << bytesRead << " bytes" << std::endl;
+        if (pty->Read(buffer.data(), bufSize - 1, &bytesRead)) {
+            if (bytesRead > 0) {
+                auto callback = [](Napi::Env env, Napi::Function jsCallback, std::vector<char>* data) {
+                    if (!data) return;
+                    auto buf = Napi::Buffer<char>::Copy(env, data->data(), data->size());
+                    jsCallback.Call({buf});
+                    delete data;
+                };
 
-                    // Accumuler les données
-                    accumulatedData.append(buffer.data(), bytesRead);
-
-                    // Chercher des lignes complètes
-                    size_t pos;
-                    while ((pos = accumulatedData.find('\n')) != std::string::npos) {
-                        // Extraire une ligne complète
-                        std::string line = accumulatedData.substr(0, pos + 1);
-                        accumulatedData.erase(0, pos + 1);
-
-                        auto callback = [](Napi::Env env, Napi::Function jsCallback, std::vector<char>* data) {
-                            if (!data) return;
-                            auto buf = Napi::Buffer<char>::Copy(env, data->data(), data->size());
-                            jsCallback.Call({buf});
-                            delete data;
-                        };
-
-                        // Envoyer la ligne complète
-                        std::vector<char>* dataToSend = new std::vector<char>(line.begin(), line.end());
-                        tsfn.NonBlockingCall(dataToSend, callback);
-                    }
-                }
-            } else {
-                DWORD error = GetLastError();
-                
-                if (error != ERROR_NO_DATA && error != ERROR_BROKEN_PIPE) {
-                    consecutiveErrors++;
-                    if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) {
-                        break;
-                    }
-                }
-
-                std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                std::vector<char>* dataToSend = new std::vector<char>(buffer.begin(), buffer.begin() + bytesRead);
+                tsfn.NonBlockingCall(dataToSend, callback);
             }
-        } catch (const std::exception& e) {
-            std::cerr << "Exception in ReadLoop: " << e.what() << std::endl;
-            consecutiveErrors++;
-            if (consecutiveErrors >= MAX_CONSECUTIVE_ERRORS) break;
-            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        } else {
+            DWORD error = GetLastError();
+            if (error != ERROR_NO_DATA && error != ERROR_BROKEN_PIPE) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
         }
     }
-    
-    // Envoyer les données restantes si nécessaire
-    if (!accumulatedData.empty()) {
-        auto callback = [](Napi::Env env, Napi::Function jsCallback, std::vector<char>* data) {
-            if (!data) return;
-            auto buf = Napi::Buffer<char>::Copy(env, data->data(), data->size());
-            jsCallback.Call({buf});
-            delete data;
-        };
 
-        std::vector<char>* dataToSend = new std::vector<char>(accumulatedData.begin(), accumulatedData.end());
-        tsfn.NonBlockingCall(dataToSend, callback);
-    }
-
-    std::cout << "ReadLoop ending, running = " << (running ? "true" : "false") << std::endl;
-    
     try {
         tsfn.Release();
     } catch (const std::exception& e) {
@@ -130,24 +79,30 @@ void WebTerminal::ReadLoop() {
     }
 }
 
-Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo& info) {
+Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo &info)
+{
     Napi::Env env = info.Env();
 
-    if (!pty) {
+    if (!pty)
+    {
         throw Napi::Error::New(env, "PTY not initialized");
     }
 
-    try {
+    try
+    {
         running = true;
         std::cout << "Setting running to true" << std::endl;
 
         SHORT width = 120, height = 30;
-        if (info.Length() > 0 && info[0].IsObject()) {
+        if (info.Length() > 0 && info[0].IsObject())
+        {
             Napi::Object options = info[0].As<Napi::Object>();
-            if (options.Has("cols")) {
+            if (options.Has("cols"))
+            {
                 width = static_cast<SHORT>(options.Get("cols").As<Napi::Number>().Int32Value());
             }
-            if (options.Has("rows")) {
+            if (options.Has("rows"))
+            {
                 height = static_cast<SHORT>(options.Get("rows").As<Napi::Number>().Int32Value());
             }
         }
@@ -155,11 +110,13 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo& info) {
         std::cout << "Creating PTY with size: " << width << "x" << height << std::endl;
 
         // Configuration UTF-8
-        if (!SetConsoleOutputCP(CP_UTF8) || !SetConsoleCP(CP_UTF8)) {
+        if (!SetConsoleOutputCP(CP_UTF8) || !SetConsoleCP(CP_UTF8))
+        {
             std::cerr << "Failed to set console code page to UTF-8" << std::endl;
         }
 
-        if (!pty->Create(width, height)) {
+        if (!pty->Create(width, height))
+        {
             running = false;
             DWORD error = GetLastError();
             std::cout << "ConPTY creation failed with error: " << error << std::endl;
@@ -169,7 +126,8 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo& info) {
         std::wstring shellPath = L"powershell.exe";
         std::cout << "Starting shell at: powershell.exe" << std::endl;
 
-        if (!pty->Start(shellPath)) {
+        if (!pty->Start(shellPath))
+        {
             running = false;
             DWORD error = GetLastError();
             std::cout << "Failed to start shell with error: " << error << std::endl;
@@ -177,7 +135,8 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo& info) {
         }
 
         // Vérifier que le processus est bien démarré
-        if (pty->GetProcessId() == 0) {
+        if (pty->GetProcessId() == 0)
+        {
             running = false;
             throw Napi::Error::New(env, "Process started but no PID obtained");
         }
@@ -190,9 +149,11 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo& info) {
 
         // Vérifier que le processus est toujours en vie
         HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, processId);
-        if (hProcess != NULL) {
+        if (hProcess != NULL)
+        {
             DWORD exitCode;
-            if (GetExitCodeProcess(hProcess, &exitCode) && exitCode != STILL_ACTIVE) {
+            if (GetExitCodeProcess(hProcess, &exitCode) && exitCode != STILL_ACTIVE)
+            {
                 CloseHandle(hProcess);
                 running = false;
                 throw Napi::Error::New(env, "Process terminated prematurely");
@@ -203,40 +164,49 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo& info) {
         std::cout << "Process started with PID: " << processId << std::endl;
 
         // Test d'écriture initial
-        const char* initialCmd = "chcp 65001 && echo Terminal Ready\r\n";
+        const char *initialCmd = "chcp 65001 && powershell -NoLogo -NoExit -Command \"$Host.UI.RawUI.WindowTitle='Terminal'; $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; function Prompt { Write-Host \\\"PS $pwd > \\\" -NoNewline -ForegroundColor Green; return ' ' }\"\r\n";
         DWORD written;
-        if (!pty->Write(initialCmd, strlen(initialCmd), &written)) {
+        if (!pty->Write(initialCmd, strlen(initialCmd), &written))
+        {
             std::cout << "Initial write test failed with error: " << GetLastError() << std::endl;
-        } else {
+        }
+        else
+        {
             std::cout << "Initial command written successfully: " << written << " bytes" << std::endl;
         }
 
         return Napi::Number::New(env, processId);
     }
-    catch (const std::exception& e) {
+    catch (const std::exception &e)
+    {
         running = false;
         std::cerr << "Error in StartProcess: " << e.what() << std::endl;
         throw Napi::Error::New(env, e.what());
     }
 }
 
-Napi::Value WebTerminal::Write(const Napi::CallbackInfo& info) {
+Napi::Value WebTerminal::Write(const Napi::CallbackInfo &info)
+{
     Napi::Env env = info.Env();
 
-    if (!pty) {
+    if (!pty)
+    {
         throw Napi::Error::New(env, "PTY not initialized");
     }
 
-    if (info.Length() < 1 || !info[0].IsString()) {
+    if (info.Length() < 1 || !info[0].IsString())
+    {
         throw Napi::TypeError::New(env, "String expected");
     }
 
-    try {
+    try
+    {
         std::string data = info[0].As<Napi::String>().Utf8Value();
         std::cout << "Writing to PTY: " << data << std::endl;
 
         DWORD written;
-        if (!pty->Write(data.c_str(), static_cast<DWORD>(data.length()), &written)) {
+        if (!pty->Write(data.c_str(), static_cast<DWORD>(data.length()), &written))
+        {
             std::cout << "Write failed with error: " << GetLastError() << std::endl;
             throw std::runtime_error("Write failed");
         }
@@ -244,16 +214,19 @@ Napi::Value WebTerminal::Write(const Napi::CallbackInfo& info) {
 
         return env.Undefined();
     }
-    catch (const std::exception& e) {
+    catch (const std::exception &e)
+    {
         std::cerr << "Error in Write: " << e.what() << std::endl;
         throw Napi::Error::New(env, e.what());
     }
 }
 
-Napi::Value WebTerminal::OnData(const Napi::CallbackInfo& info) {
+Napi::Value WebTerminal::OnData(const Napi::CallbackInfo &info)
+{
     Napi::Env env = info.Env();
 
-    if (info.Length() < 1 || !info[0].IsFunction()) {
+    if (info.Length() < 1 || !info[0].IsFunction())
+    {
         throw Napi::TypeError::New(env, "Function expected");
     }
 
@@ -263,47 +236,53 @@ Napi::Value WebTerminal::OnData(const Napi::CallbackInfo& info) {
         info[0].As<Napi::Function>(),
         "Terminal Callback",
         0,
-        1
-    );
+        1);
 
-    readThread = std::thread([this]() {
-        this->ReadLoop();
-    });
+    readThread = std::thread([this]()
+                             { this->ReadLoop(); });
 
     return env.Undefined();
 }
 
-Napi::Value WebTerminal::Resize(const Napi::CallbackInfo& info) {
+Napi::Value WebTerminal::Resize(const Napi::CallbackInfo &info)
+{
     Napi::Env env = info.Env();
 
-    if (!pty) {
+    if (!pty)
+    {
         throw Napi::Error::New(env, "PTY not initialized");
     }
 
-    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber()) {
+    if (info.Length() < 2 || !info[0].IsNumber() || !info[1].IsNumber())
+    {
         throw Napi::TypeError::New(env, "Numbers expected for columns and rows");
     }
 
-    try {
+    try
+    {
         SHORT cols = static_cast<SHORT>(info[0].As<Napi::Number>().Int32Value());
         SHORT rows = static_cast<SHORT>(info[1].As<Napi::Number>().Int32Value());
 
-        if (!pty->Resize(cols, rows)) {
+        if (!pty->Resize(cols, rows))
+        {
             throw std::runtime_error("Resize failed");
         }
 
         return env.Undefined();
     }
-    catch (const std::exception& e) {
+    catch (const std::exception &e)
+    {
         std::cerr << "Error in Resize: " << e.what() << std::endl;
         throw Napi::Error::New(env, e.what());
     }
 }
 
-Napi::Value WebTerminal::Echo(const Napi::CallbackInfo& info) {
+Napi::Value WebTerminal::Echo(const Napi::CallbackInfo &info)
+{
     Napi::Env env = info.Env();
-    
-    if (info.Length() < 1 || !info[0].IsString()) {
+
+    if (info.Length() < 1 || !info[0].IsString())
+    {
         Napi::TypeError::New(env, "String expected").ThrowAsJavaScriptException();
         return env.Null();
     }
@@ -311,7 +290,8 @@ Napi::Value WebTerminal::Echo(const Napi::CallbackInfo& info) {
     return info[0];
 }
 
-Napi::Object Init(Napi::Env env, Napi::Object exports) {
+Napi::Object Init(Napi::Env env, Napi::Object exports)
+{
     return WebTerminal::Init(env, exports);
 }
 

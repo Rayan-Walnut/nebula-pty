@@ -1,16 +1,36 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Terminal Test</title>
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' 'unsafe-eval'; script-src 'self' 'unsafe-inline' 'unsafe-eval'">
+    <title>Terminal Electron</title>
+    <meta charset="UTF-8">
     <link rel="stylesheet" href="node_modules/xterm/css/xterm.css" />
+    <style>
+        html, body {
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            background: #1e1e1e;
+        }
+        #terminal-container {
+            width: 100%;
+            height: 100%;
+            padding: 5px;
+            box-sizing: border-box;
+        }
+        .xterm .xterm-viewport {
+            overflow-y: auto;
+        }
+        .xterm-cursor-layer {
+            display: block !important;
+        }
+        .xterm-cursor {
+            background-color: #fff !important;
+        }
+    </style>
 </head>
 <body>
-    <div id="xterm" style="height: 100vh"></div>
-    <script>
-        // Indiquer que nous utilisons Node.js
-        window.nodeRequire = require;
-    </script>
+    <div id="terminal-container"></div>
     <script src="renderer.js"></script>
 </body>
 </html>

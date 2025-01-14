@@ -1,39 +1,30 @@
-const { EventEmitter } = require('events');
-const { WebTerminal } = require('../../build/Release/terminal');
+const { app, BrowserWindow } = require('electron');
+const path = require('path');
 
-class PTYWrapper extends EventEmitter {
-    constructor(terminal) {
-        super();
-        this._terminal = terminal;
-
-        // Configure le callback pour recevoir les données
-        this._terminal.onData((data) => {
-            this.emit('data', data);
-        });
-    }
-
-    write(data) {
-        this._terminal.write(data);
-    }
-
-    resize(cols, rows) {
-        this._terminal.resize(cols, rows);
-    }
-}
-
-function spawn(shell, args, options = {}) {
-    const terminal = new WebTerminal();
-    
-    // Configurer et démarrer le processus
-    terminal.startProcess({
-        cols: options.cols || 80,
-        rows: options.rows || 24,
-        cwd: options.cwd || process.cwd(),
-        env: options.env || process.env
+function createWindow() {
+    const win = new BrowserWindow({
+        width: 800,
+        height: 600,
+        webPreferences: {
+            nodeIntegration: true,
+            contextIsolation: false,
+            enableRemoteModule: true
+        }
     });
 
-    // Créer et retourner l'interface compatible node-pty
-    return new PTYWrapper(terminal);
+    win.loadFile('index.html');
 }
 
-module.exports = { spawn };
+app.whenReady().then(createWindow);
+
+app.on('window-all-closed', () => {
+    if (process.platform !== 'darwin') {
+        app.quit();
+    }
+});
+
+app.on('activate', () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+        createWindow();
+    }
+});

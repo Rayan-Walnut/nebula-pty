@@ -1,15 +1,18 @@
 {
-  "name": "nebula-pty-electron-example",
+  "name": "electron-terminal",
   "version": "1.0.0",
-  "description": "Example using nebula-pty with Electron",
   "main": "main.js",
   "scripts": {
-    "start": "electron . --ignore-gpu-blacklist"
+      "start": "electron .",
+      "build": "electron-builder"
   },
   "dependencies": {
-    "nebula-pty": "file:../.."
+      "xterm": "^5.1.0",
+      "xterm-addon-fit": "^0.7.0",
+      "xterm-addon-web-links": "^0.8.0",
+      "electron": "^28.0.0"
   },
   "devDependencies": {
-    "electron": "^28.0.0"
+      "electron-builder": "^24.0.0"
   }
 }
