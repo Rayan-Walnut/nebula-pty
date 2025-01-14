@@ -41,6 +41,7 @@ Napi::Object WebTerminal::Init(Napi::Env env, Napi::Object exports)
     exports.Set("WebTerminal", func);
     return exports;
 }
+
 void WebTerminal::ReadLoop() {
     if (!pty) {
         std::cerr << "ReadLoop: PTY is null" << std::endl;
@@ -163,18 +164,6 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo &info)
 
         std::cout << "Process started with PID: " << processId << std::endl;
 
-        // Test d'écriture initial
-        const char *initialCmd = "chcp 65001 && powershell -NoLogo -NoExit -Command \"$Host.UI.RawUI.WindowTitle='Terminal'; $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8'; [Console]::OutputEncoding = [System.Text.Encoding]::UTF8; function Prompt { Write-Host \\\"PS $pwd > \\\" -NoNewline -ForegroundColor Green; return ' ' }\"\r\n";
-        DWORD written;
-        if (!pty->Write(initialCmd, strlen(initialCmd), &written))
-        {
-            std::cout << "Initial write test failed with error: " << GetLastError() << std::endl;
-        }
-        else
-        {
-            std::cout << "Initial command written successfully: " << written << " bytes" << std::endl;
-        }
-
         return Napi::Number::New(env, processId);
     }
     catch (const std::exception &e)
@@ -202,15 +191,12 @@ Napi::Value WebTerminal::Write(const Napi::CallbackInfo &info)
     try
     {
         std::string data = info[0].As<Napi::String>().Utf8Value();
-        std::cout << "Writing to PTY: " << data << std::endl;
-
         DWORD written;
         if (!pty->Write(data.c_str(), static_cast<DWORD>(data.length()), &written))
         {
             std::cout << "Write failed with error: " << GetLastError() << std::endl;
             throw std::runtime_error("Write failed");
         }
-        std::cout << "Successfully wrote " << written << " bytes" << std::endl;
 
         return env.Undefined();
     }
