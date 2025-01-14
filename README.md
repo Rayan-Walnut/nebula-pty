@@ -42,7 +42,7 @@ ptyProcess.onData(data => term.write(data));
 ## Building from Source
 1. Clone the repository
 ```bash
-git clone https://github.com/yourusername/nebula-pty.git
+git clone https://github.com/Rayan-Walnut/nebula-pty.git
 cd nebula-pty
 ```
 
