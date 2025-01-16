@@ -18,7 +18,7 @@ public:
     ~ConPTY();
 
     bool Create(SHORT cols, SHORT rows);
-    bool Start(const std::wstring& command, const std::wstring& cwd = L"");
+    bool Start(const std::wstring &command);
     bool Write(const char *data, DWORD length, DWORD *written);
     bool Read(char *data, DWORD length, DWORD *read);
     bool Resize(SHORT cols, SHORT rows);

@@ -1,6 +1,6 @@
 {
   "name": "nebula-pty",
-  "version": "1.0.12",
+  "version": "1.0.13",
   "description": "Custom PTY module for terminal emulation",
   "main": "index.js",
   "repository": "https://github.com/Rayan-Walnut/nebula-pty",

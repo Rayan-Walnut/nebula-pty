@@ -32,13 +32,7 @@ WebTerminal::~WebTerminal()
 
 Napi::Object WebTerminal::Init(Napi::Env env, Napi::Object exports)
 {
-    Napi::Function func = DefineClass(env, "WebTerminal", {
-        InstanceMethod("startProcess", &WebTerminal::StartProcess),
-        InstanceMethod("write", &WebTerminal::Write),
-        InstanceMethod("onData", &WebTerminal::OnData),
-        InstanceMethod("resize", &WebTerminal::Resize),
-        InstanceMethod("echo", &WebTerminal::Echo)
-    });
+    Napi::Function func = DefineClass(env, "WebTerminal", {InstanceMethod("startProcess", &WebTerminal::StartProcess), InstanceMethod("write", &WebTerminal::Write), InstanceMethod("onData", &WebTerminal::OnData), InstanceMethod("resize", &WebTerminal::Resize), InstanceMethod("echo", &WebTerminal::Echo)});
 
     Napi::FunctionReference *constructor = new Napi::FunctionReference();
     *constructor = Napi::Persistent(func);
@@ -100,15 +94,10 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo &info)
         running = true;
         std::cout << "Setting running to true" << std::endl;
 
-        // Valeurs par défaut
         SHORT width = 120, height = 30;
-        std::wstring cwd = L"";
-
-        // Traitement des options
         if (info.Length() > 0 && info[0].IsObject())
         {
             Napi::Object options = info[0].As<Napi::Object>();
-            
             if (options.Has("cols"))
             {
                 width = static_cast<SHORT>(options.Get("cols").As<Napi::Number>().Int32Value());
@@ -116,16 +105,6 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo &info)
             if (options.Has("rows"))
             {
                 height = static_cast<SHORT>(options.Get("rows").As<Napi::Number>().Int32Value());
-            }
-            
-            // Ajout du support cwd
-            if (options.Has("cwd"))
-            {
-                std::string cwdUtf8 = options.Get("cwd").As<Napi::String>().Utf8Value();
-                int wsize = MultiByteToWideChar(CP_UTF8, 0, cwdUtf8.c_str(), -1, NULL, 0);
-                std::vector<wchar_t> wbuff(wsize);
-                MultiByteToWideChar(CP_UTF8, 0, cwdUtf8.c_str(), -1, wbuff.data(), wsize);
-                cwd = std::wstring(wbuff.data());
             }
         }
 
@@ -148,7 +127,7 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo &info)
         std::wstring shellPath = L"powershell.exe";
         std::cout << "Starting shell at: powershell.exe" << std::endl;
 
-        if (!pty->Start(shellPath, cwd))
+        if (!pty->Start(shellPath))
         {
             running = false;
             DWORD error = GetLastError();
@@ -156,17 +135,20 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo &info)
             throw Napi::Error::New(env, "Failed to start process: " + std::to_string(error));
         }
 
+        // Vérifier que le processus est bien démarré
         if (pty->GetProcessId() == 0)
         {
             running = false;
             throw Napi::Error::New(env, "Process started but no PID obtained");
         }
 
+        // Attendre l'initialisation
         std::this_thread::sleep_for(std::chrono::milliseconds(1000));
 
         processId = pty->GetProcessId();
         initialized = true;
 
+        // Vérifier que le processus est toujours en vie
         HANDLE hProcess = OpenProcess(PROCESS_QUERY_INFORMATION, FALSE, processId);
         if (hProcess != NULL)
         {
@@ -181,6 +163,7 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo &info)
         }
 
         std::cout << "Process started with PID: " << processId << std::endl;
+
         return Napi::Number::New(env, processId);
     }
     catch (const std::exception &e)
@@ -190,6 +173,7 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo &info)
         throw Napi::Error::New(env, e.what());
     }
 }
+
 Napi::Value WebTerminal::Write(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
@@ -208,14 +192,10 @@ Napi::Value WebTerminal::Write(const Napi::CallbackInfo &info)
     {
         std::string data = info[0].As<Napi::String>().Utf8Value();
         DWORD written;
-        // Ajoutez des logs pour débugger
-        std::cout << "Trying to write: " << data.length() << " bytes" << std::endl;
-        
         if (!pty->Write(data.c_str(), static_cast<DWORD>(data.length()), &written))
         {
-            DWORD error = GetLastError();
-            std::cout << "Write failed with error code: " << error << std::endl;
-            throw std::runtime_error("Write failed with error: " + std::to_string(error));
+            std::cout << "Write failed with error: " << GetLastError() << std::endl;
+            throw std::runtime_error("Write failed");
         }
 
         return env.Undefined();
