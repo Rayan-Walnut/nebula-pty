@@ -1,30 +1,27 @@
 {
   "targets": [{
     "target_name": "terminal",
-    "sources": [ 
-      "./src/terminal.cc",
-      "./src/win/conpty.cc"
-    ],
     "include_dirs": [
       "<!@(node -p \"require('node-addon-api').include\")",
       "src"
     ],
-    "libraries": [
-      "kernel32.lib"
+    "sources": [
+      "src/terminal.cc",
+      "src/win/conpty.cc"
     ],
-    "defines": [
-      "UNICODE",
-      "_UNICODE"
+    "defines": ["NAPI_DISABLE_CPP_EXCEPTIONS"],
+    "libraries": [],
+    "conditions": [
+      ["OS=='win'", {
+        "libraries": [
+          "-lkernel32.lib"
+        ]
+      }]
     ],
     "msvs_settings": {
       "VCCLCompilerTool": {
-        "ExceptionHandling": 1,
-        "AdditionalOptions": [
-          "/std:c++17"
-        ]
+        "ExceptionHandling": 1
       }
-    },
-    "cflags!": [ "-fno-exceptions" ],
-    "cflags_cc!": [ "-fno-exceptions" ]
+    }
   }]
 }
