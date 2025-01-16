@@ -30,22 +30,48 @@ bool ConPTY::Create(SHORT cols, SHORT rows)
 
     return CreatePseudoConsole(cols, rows);
 }
-
 bool ConPTY::CreatePipes()
 {
     SECURITY_ATTRIBUTES sa{};
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
+    sa.lpSecurityDescriptor = NULL;
 
+    // Créer les pipes avec les permissions explicites et vérifier les handles
     if (!CreatePipe(&hPipeIn, &hPtyOut, &sa, 0))
     {
+        DWORD error = GetLastError();
+        std::cerr << "CreatePipe (in/out) failed with error: " << error << std::endl;
+        return false;
+    }
+
+    // S'assurer que le handle n'est pas hérité où il ne devrait pas l'être
+    if (!SetHandleInformation(hPipeIn, HANDLE_FLAG_INHERIT, 0))
+    {
+        DWORD error = GetLastError();
+        std::cerr << "SetHandleInformation failed with error: " << error << std::endl;
+        CloseHandle(hPipeIn);
+        CloseHandle(hPtyOut);
         return false;
     }
 
     if (!CreatePipe(&hPtyIn, &hPipeOut, &sa, 0))
     {
+        DWORD error = GetLastError();
+        std::cerr << "CreatePipe (in/out) failed with error: " << error << std::endl;
         CloseHandle(hPipeIn);
         CloseHandle(hPtyOut);
+        return false;
+    }
+
+    if (!SetHandleInformation(hPipeOut, HANDLE_FLAG_INHERIT, 0))
+    {
+        DWORD error = GetLastError();
+        std::cerr << "SetHandleInformation failed with error: " << error << std::endl;
+        CloseHandle(hPipeIn);
+        CloseHandle(hPtyOut);
+        CloseHandle(hPtyIn);
+        CloseHandle(hPipeOut);
         return false;
     }
 
@@ -169,19 +195,37 @@ bool ConPTY::IsActive() const
 
     return exitCode == STILL_ACTIVE;
 }
-
 bool ConPTY::Write(const char* data, DWORD length, DWORD* written)
 {
     if (!hPipeIn || !isInitialized) {
         std::cerr << "Write failed: pipe not initialized" << std::endl;
         return false;
     }
-    
-    BOOL result = WriteFile(hPipeIn, data, length, written, NULL);
+
+    // Vérifier que le handle est valide
+    if (hPipeIn == INVALID_HANDLE_VALUE) {
+        std::cerr << "Write failed: invalid handle" << std::endl;
+        return false;
+    }
+
+    DWORD bytesWritten = 0;
+    BOOL result = WriteFile(hPipeIn, data, length, &bytesWritten, NULL);
     if (!result) {
         DWORD error = GetLastError();
         std::cerr << "WriteFile failed with error: " << error << std::endl;
+        
+        // Si le pipe est fermé, on essaie de le recréer
+        if (error == ERROR_BROKEN_PIPE || error == ERROR_NO_DATA) {
+            if (CreatePipes()) {
+                result = WriteFile(hPipeIn, data, length, &bytesWritten, NULL);
+            }
+        }
     }
+    
+    if (written) {
+        *written = bytesWritten;
+    }
+    
     return result != 0;
 }
 
