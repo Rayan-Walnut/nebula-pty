@@ -100,19 +100,21 @@ const startPTY = () => {
         ptyProcess.startProcess(ptyOptions);
 
         // Gestion des données
-        term.onData(data => {
+       term.onData(data => {
+            console.log('Terminal data:', data);
             try {
                 ptyProcess.write(data);
             } catch (error) {
-                console.error('Erreur lors de l\'écriture vers PTY:', error);
+                console.error('Write error:', error);
             }
         });
 
         ptyProcess.onData(data => {
+            console.log('PTY data:', data);
             try {
                 term.write(data);
             } catch (error) {
-                console.error('Erreur lors de l\'écriture vers terminal:', error);
+                console.error('Term write error:', error);
             }
         });
 

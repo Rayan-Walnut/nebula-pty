@@ -190,7 +190,6 @@ Napi::Value WebTerminal::StartProcess(const Napi::CallbackInfo &info)
         throw Napi::Error::New(env, e.what());
     }
 }
-
 Napi::Value WebTerminal::Write(const Napi::CallbackInfo &info)
 {
     Napi::Env env = info.Env();
@@ -209,10 +208,14 @@ Napi::Value WebTerminal::Write(const Napi::CallbackInfo &info)
     {
         std::string data = info[0].As<Napi::String>().Utf8Value();
         DWORD written;
+        // Ajoutez des logs pour débugger
+        std::cout << "Trying to write: " << data.length() << " bytes" << std::endl;
+        
         if (!pty->Write(data.c_str(), static_cast<DWORD>(data.length()), &written))
         {
-            std::cout << "Write failed with error: " << GetLastError() << std::endl;
-            throw std::runtime_error("Write failed");
+            DWORD error = GetLastError();
+            std::cout << "Write failed with error code: " << error << std::endl;
+            throw std::runtime_error("Write failed with error: " + std::to_string(error));
         }
 
         return env.Undefined();

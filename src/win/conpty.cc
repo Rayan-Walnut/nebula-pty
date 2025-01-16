@@ -172,7 +172,17 @@ bool ConPTY::IsActive() const
 
 bool ConPTY::Write(const char* data, DWORD length, DWORD* written)
 {
-    return WriteFile(hPipeIn, data, length, written, NULL) != 0;
+    if (!hPipeIn || !isInitialized) {
+        std::cerr << "Write failed: pipe not initialized" << std::endl;
+        return false;
+    }
+    
+    BOOL result = WriteFile(hPipeIn, data, length, written, NULL);
+    if (!result) {
+        DWORD error = GetLastError();
+        std::cerr << "WriteFile failed with error: " << error << std::endl;
+    }
+    return result != 0;
 }
 
 bool ConPTY::Read(char* data, DWORD length, DWORD* read)
